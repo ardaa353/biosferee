@@ -70,13 +70,21 @@ export default function CreatePostPage() {
         locality, 
         lat, 
         lng, 
-        // Zod regex kuralı için contentType "image/jpeg" yapıldı. 
-        // PostCard bileşeni görseli okurken doğrudan contentBase64'teki URL'yi kullanıyor.
-        images: images.map(img => ({
-          name: img.name,
-          contentType: "image/jpeg", 
-          contentBase64: img.url 
-        })), 
+        // Zod regex kontrolünü (image/jpeg, png, webp, gif) sağlamak için uzantıya göre dinamik type üretiyoruz
+        images: images.map(img => {
+          const lower = img.url.toLowerCase();
+          let cType = "image/jpeg";
+          if (lower.endsWith(".png")) cType = "image/png";
+          else if (lower.endsWith(".webp")) cType = "image/webp";
+          else if (lower.endsWith(".gif")) cType = "image/gif";
+          else if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) cType = "image/jpeg";
+
+          return {
+            name: img.name,
+            contentType: cType,     // Zod regex regex kontrolünden başarıyla geçer
+            contentBase64: img.url  // Ana akışın resmi okuyacağı Cloudinary linki
+          };
+        }), 
         collaboratorIds 
       }); 
       navigate(`/gonderi/${result.id}`); 
@@ -187,7 +195,7 @@ export default function CreatePostPage() {
         
         <div className="flex justify-end gap-3 border-t border-[#09352e]/15 pt-6">
           <button type="button" onClick={() => navigate(-1)} className={secondaryButton}>Vazgeç</button>
-          <button className={buttonClass} disabled={create.isPending}>{create.isPending ? "Fotoğraflar dan kayıt yükleniyor…" : "Gözlemi yayınla"}</button>
+          <button className={buttonClass} disabled={create.isPending}>{create.isPending ? "Fotoğraflar ve kayıt yükleniyor…" : "Gözlemi yayınla"}</button>
         </div>
       </form>
     </div>
