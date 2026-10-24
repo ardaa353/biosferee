@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, useEffect } from "react";
 import { Link } from "react-router";
 import {
   CalendarDays,
@@ -32,6 +32,10 @@ export default function PostCard({
 }) {
   const [slide, setSlide] = useState(0);
   const [reporting, setReporting] = useState(false);
+  
+  // YENİ EKLENDİ: Tam ekran resim modu state'i
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  
   const [details, setDetails] = useState("");
   const [reason, setReason] = useState<
     "misleading" | "wrong_species" | "inappropriate" | "other"
@@ -39,7 +43,6 @@ export default function PostCard({
   const [message, setMessage] = useState("");
 
   const utils = trpc.useUtils();
-
   const { data: currentUser } = trpc.biosfere.auth.me.useQuery();
 
   const like = trpc.biosfere.posts.toggleLike.useMutation({
@@ -68,7 +71,6 @@ export default function PostCard({
   const deletePost = trpc.biosfere.posts.delete.useMutation({
     onSuccess: async () => {
       setMessage("Gönderi başarıyla silindi.");
-
       await Promise.all([
         utils.biosfere.posts.list.invalidate(),
         utils.biosfere.posts.get.invalidate({ id: post.id }),
@@ -90,6 +92,18 @@ export default function PostCard({
     });
   }
 
+  // YENİ EKLENDİ: Tam ekran açıkken sayfanın arkada kaymasını engelle
+  useEffect(() => {
+    if (isFullscreen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [isFullscreen]);
+
   const isOwnerOrAdmin =
     !!currentUser &&
     (String(currentUser.id) === String(post.author.id) ||
@@ -101,13 +115,11 @@ export default function PostCard({
       id={"gonderi-" + post.id}
     >
       <header className="mb-4 flex items-center gap-3">
-        {/* DÜZELTİLDİ: /profil/ eklendi */}
         <Link to={`/profil/${post.author.username}`}>
           <Avatar user={post.author} />
         </Link>
 
         <div className="min-w-0 flex-1">
-          {/* DÜZELTİLDİ: /profil/ eklendi */}
           <Link
             to={`/profil/${post.author.username}`}
             className="text-sm font-bold hover:underline hover:text-[#007f24] transition-colors"
@@ -177,15 +189,14 @@ export default function PostCard({
       {post.images.length > 0 && (
         <div className="mb-5">
           <div className="group relative aspect-[4/3] overflow-hidden rounded-xl bg-[#dfe7df] sm:aspect-[16/10]">
+            {/* DÜZELTİLDİ: Resme cursor-zoom-in ve onClick eklendi */}
             <img
               src={post.images[slide]?.url}
               alt={post.commonName ?? "Türü bilinmeyen canlı gözlemi"}
-              className="h-full w-full object-cover"
+              className="h-full w-full object-cover cursor-zoom-in transition-transform duration-300 hover:scale-[1.02]"
+              onClick={() => setIsFullscreen(true)}
               onError={() => {
-                console.error(
-                  "Görsel yüklenemedi:",
-                  post.images[slide]?.url
-                );
+                console.error("Görsel yüklenemedi:", post.images[slide]?.url);
               }}
             />
 
@@ -194,10 +205,7 @@ export default function PostCard({
                 <button
                   type="button"
                   onClick={() => {
-                    setSlide(
-                      (slide - 1 + post.images.length) %
-                        post.images.length
-                    );
+                    setSlide((slide - 1 + post.images.length) % post.images.length);
                   }}
                   className="absolute left-3 top-1/2 grid h-11 w-11 -translate-y-1/2 cursor-pointer place-items-center rounded-full bg-[#f7f7f7]/90 opacity-100 shadow sm:opacity-0 sm:group-hover:opacity-100"
                   aria-label="Önceki fotoğraf"
@@ -216,12 +224,63 @@ export default function PostCard({
                   <ChevronRight />
                 </button>
 
-                <span className="absolute bottom-3 right-3 rounded-full bg-[#09352e]/85 px-2.5 py-1 font-mono text-[11px] text-white">
+                <span className="absolute bottom-3 right-3 rounded-full bg-[#09352e]/85 px-2.5 py-1 font-mono text-[11px] text-white pointer-events-none">
                   {slide + 1}/{post.images.length}
                 </span>
               </>
             )}
           </div>
+        </div>
+      )}
+
+      {/* YENİ EKLENDİ: Tam Ekran (Lightbox) Modalı */}
+      {isFullscreen && (
+        <div
+          className="fixed inset-0 z-[100] grid place-items-center bg-black/90 p-4 md:p-8 backdrop-blur-sm"
+          onMouseDown={() => setIsFullscreen(false)}
+        >
+          <button
+            className="absolute top-4 right-4 grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/25 z-50"
+            onClick={() => setIsFullscreen(false)}
+            aria-label="Kapat"
+          >
+            <X size={24} />
+          </button>
+          
+          <img
+            src={post.images[slide]?.url}
+            alt="Büyük Görsel"
+            className="max-h-full max-w-full object-contain cursor-zoom-out select-none"
+            onMouseDown={(e) => e.stopPropagation()} 
+            onClick={() => setIsFullscreen(false)}
+          />
+
+          {/* Tam ekrandayken de önceki/sonraki resme geçebilmek için (Opsiyonel ama kullanışlı) */}
+          {post.images.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSlide((slide - 1 + post.images.length) % post.images.length);
+                }}
+                className="absolute left-4 top-1/2 grid h-14 w-14 -translate-y-1/2 cursor-pointer place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/25"
+              >
+                <ChevronLeft size={30} />
+              </button>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSlide((slide + 1) % post.images.length);
+                }}
+                className="absolute right-4 top-1/2 grid h-14 w-14 -translate-y-1/2 cursor-pointer place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/25"
+              >
+                <ChevronRight size={30} />
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -302,7 +361,6 @@ export default function PostCard({
           Ortak çalışma:{" "}
           {post.collaborators.map((c, index) => (
             <span key={c.id}>
-              {/* DÜZELTİLDİ: /profil/ eklendi */}
               <Link to={`/profil/${c.username}`} className="hover:underline hover:text-[#007f24] font-semibold transition-colors">
                 {c.firstName} {c.lastName}
               </Link>
