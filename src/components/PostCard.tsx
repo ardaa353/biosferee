@@ -41,21 +41,20 @@ export default function PostCard({
 
   const utils = trpc.useUtils();
 
-  // Gerçek oturum açmış kullanıcı.
   const { data: currentUser } = trpc.biosfere.auth.me.useQuery();
 
-  // Beğeni işlemi.
   const like = trpc.biosfere.posts.toggleLike.useMutation({
     onSuccess: async () => {
-      await utils.biosfere.posts.list.invalidate();
-      await utils.biosfere.posts.get.invalidate({ id: post.id });
+      await Promise.all([
+        utils.biosfere.posts.list.invalidate(),
+        utils.biosfere.posts.get.invalidate({ id: post.id }),
+      ]);
     },
     onError: (error) => {
       setMessage(errorMessage(error));
     },
   });
 
-  // Gönderi raporlama işlemi.
   const report = trpc.biosfere.posts.report.useMutation({
     onSuccess: () => {
       setReporting(false);
@@ -67,7 +66,6 @@ export default function PostCard({
     },
   });
 
-  // Gönderiyi backend ve Cloudinary üzerinden silme işlemi.
   const deletePost = trpc.biosfere.posts.delete.useMutation({
     onSuccess: async () => {
       setMessage("Gönderi başarıyla silindi.");
@@ -93,7 +91,6 @@ export default function PostCard({
     });
   }
 
-  // Gönderi sahibi veya admin ise yönetim butonlarını göster.
   const isOwnerOrAdmin =
     !!currentUser &&
     (String(currentUser.id) === String(post.author.id) ||
@@ -102,16 +99,16 @@ export default function PostCard({
   return (
     <article
       className="overflow-hidden border-b border-[#09352e]/15 pb-7"
-      id={`gonderi-${post.id}`}
+      id={"gonderi-" + post.id}
     >
       <header className="mb-4 flex items-center gap-3">
-        <Link to={`/profil/${post.author.username}`}>
+        <Link to={"/profil/" + post.author.username}>
           <Avatar user={post.author} />
         </Link>
 
         <div className="min-w-0 flex-1">
           <Link
-            to={`/profil/${post.author.username}`}
+            to={"/profil/" + post.author.username}
             className="text-sm font-bold hover:underline"
           >
             {post.author.firstName} {post.author.lastName}
@@ -127,9 +124,9 @@ export default function PostCard({
             <>
               <button
                 type="button"
-                onClick={() =>
-                  alert("Düzenleme sayfası henüz bağlanmadı.")
-                }
+                onClick={() => {
+                  window.alert("Düzenleme sayfası henüz bağlanmadı.");
+                }}
                 className="grid h-11 w-11 cursor-pointer place-items-center rounded-full text-[#71807e] transition hover:bg-blue-500/10 hover:text-blue-600"
                 aria-label="Gönderiyi düzenle"
               >
@@ -183,24 +180,24 @@ export default function PostCard({
               src={post.images[slide]?.url}
               alt={post.commonName ?? "Türü bilinmeyen canlı gözlemi"}
               className="h-full w-full object-cover"
-              onError={() =>
+              onError={() => {
                 console.error(
                   "Görsel yüklenemedi:",
                   post.images[slide]?.url
-                )
-              }
+                );
+              }}
             />
 
             {post.images.length > 1 && (
               <>
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
                     setSlide(
                       (slide - 1 + post.images.length) %
                         post.images.length
-                    )
-                  }
+                    );
+                  }}
                   className="absolute left-3 top-1/2 grid h-11 w-11 -translate-y-1/2 cursor-pointer place-items-center rounded-full bg-[#f7f7f7]/90 opacity-100 shadow sm:opacity-0 sm:group-hover:opacity-100"
                   aria-label="Önceki fotoğraf"
                 >
@@ -209,9 +206,9 @@ export default function PostCard({
 
                 <button
                   type="button"
-                  onClick={() =>
-                    setSlide((slide + 1) % post.images.length)
-                  }
+                  onClick={() => {
+                    setSlide((slide + 1) % post.images.length);
+                  }}
                   className="absolute right-3 top-1/2 grid h-11 w-11 -translate-y-1/2 cursor-pointer place-items-center rounded-full bg-[#f7f7f7]/90 opacity-100 shadow sm:opacity-0 sm:group-hover:opacity-100"
                   aria-label="Sonraki fotoğraf"
                 >
@@ -242,7 +239,7 @@ export default function PostCard({
             )}
           </div>
 
-          <Link to={`/gonderi/${post.id}`}>
+          <Link to={"/gonderi/" + post.id}>
             <h2 className="font-serif text-3xl leading-tight tracking-[-.6px] hover:underline">
               {post.status === "unknown"
                 ? "Bu canlıyı tanıyor musun?"
@@ -259,7 +256,9 @@ export default function PostCard({
 
         <button
           type="button"
-          onClick={() => like.mutate({ postId: post.id })}
+          onClick={() => {
+            like.mutate({ postId: post.id });
+          }}
           disabled={like.isPending}
           className={cn(
             "flex min-h-11 cursor-pointer items-center gap-2 rounded-full border px-4 text-sm font-semibold transition",
@@ -301,13 +300,13 @@ export default function PostCard({
           <Users size={15} />
           Ortak çalışma:{" "}
           {post.collaborators
-            .map((c) => `${c.firstName} ${c.lastName}`)
+            .map((c) => c.firstName + " " + c.lastName)
             .join(", ")}
         </p>
       )}
 
       <div className="mt-4 flex gap-2">
-        <Link to={`/gonderi/${post.id}`} className={secondaryButton}>
+        <Link to={"/gonderi/" + post.id} className={secondaryButton}>
           {post.status === "unknown"
             ? "Türü şu olabilir"
             : "Gözlemi aç"}
@@ -353,7 +352,9 @@ export default function PostCard({
 
               <button
                 type="button"
-                onClick={() => setReporting(false)}
+                onClick={() => {
+                  setReporting(false);
+                }}
                 className="grid h-10 w-10 place-items-center rounded-full hover:bg-[#85c093]/20"
                 aria-label="Kapat"
               >
@@ -368,9 +369,15 @@ export default function PostCard({
                 <select
                   className={`${inputClass} mt-2`}
                   value={reason}
-                  onChange={(e) =>
-                    setReason(e.target.value as typeof reason)
-                  }
+                  onChange={(e) => {
+                    setReason(
+                      e.target.value as
+                        | "misleading"
+                        | "wrong_species"
+                        | "inappropriate"
+                        | "other"
+                    );
+                  }}
                 >
                   <option value="wrong_species">
                     Yanlış tür bilgisi
@@ -391,7 +398,9 @@ export default function PostCard({
                 <textarea
                   className={`${inputClass} mt-2 min-h-28`}
                   value={details}
-                  onChange={(e) => setDetails(e.target.value)}
+                  onChange={(e) => {
+                    setDetails(e.target.value);
+                  }}
                   minLength={5}
                   maxLength={1500}
                   required
