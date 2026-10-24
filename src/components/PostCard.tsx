@@ -4,7 +4,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, CircleHelp, Flag, Heart, MapPi
 import { trpc } from "@/providers/trpc";
 import type { BioPost } from "@/lib/types";
 import { cn, errorMessage, formatDate, seasonOf } from "@/lib/utils";
-import { Avatar, buttonClass, inputClass, secondaryButton } from "./BioUI";
+import { Avatar, buttonClass, inputClass, secondaryButton } from "@/components/BioUI";
 
 export default function PostCard({ post, compact = false }: { post: BioPost; compact?: boolean }) {
   const [slide, setSlide] = useState(0);
@@ -33,7 +33,6 @@ export default function PostCard({ post, compact = false }: { post: BioPost; com
 
   return (
     <article className="overflow-hidden border-b border-[#09352e]/15 pb-7" id={`gonderi-${post.id}`}>
-      {/* Kart Başlığı (Kullanıcı Bilgileri) */}
       <header className="mb-4 flex items-center gap-3">
         <Link to={`/profil/${post.author.username}`}>
           <Avatar user={post.author} />
@@ -53,39 +52,46 @@ export default function PostCard({ post, compact = false }: { post: BioPost; com
         </button>
       </header>
 
-      {/* Fotoğraf Carousel */}
       {post.images.length > 0 && (
-        <div className="group relative mb-5 aspect-[4/3] overflow-hidden rounded-xl bg-[#dfe7df] sm:aspect-[16/10]">
-          <img 
-            src={post.images[slide]?.url} 
-            alt={post.commonName ?? "Türü bilinmeyen canlı gözlemi"} 
-            className="h-full w-full object-cover" 
-          />
-          {post.images.length > 1 && (
-            <>
-              <button 
-                onClick={() => setSlide((slide - 1 + post.images.length) % post.images.length)} 
-                className="absolute left-3 top-1/2 grid h-11 w-11 -translate-y-1/2 cursor-pointer place-items-center rounded-full bg-[#f7f7f7]/90 opacity-100 shadow sm:opacity-0 sm:group-hover:opacity-100" 
-                aria-label="Önceki fotoğraf"
-              >
-                <ChevronLeft />
-              </button>
-              <button 
-                onClick={() => setSlide((slide + 1) % post.images.length)} 
-                className="absolute right-3 top-1/2 grid h-11 w-11 -translate-y-1/2 cursor-pointer place-items-center rounded-full bg-[#f7f7f7]/90 opacity-100 shadow sm:opacity-0 sm:group-hover:opacity-100" 
-                aria-label="Sonraki fotoğraf"
-              >
-                <ChevronRight />
-              </button>
-              <span className="absolute bottom-3 right-3 rounded-full bg-[#09352e]/85 px-2.5 py-1 font-mono text-[11px] text-white">
-                {slide + 1}/{post.images.length}
-              </span>
-            </>
+        <div className="mb-5">
+          <div className="group relative aspect-[4/3] overflow-hidden rounded-xl bg-[#dfe7df] sm:aspect-[16/10]">
+            <img 
+              src={post.images[slide]?.url} 
+              alt={post.commonName ?? "Türü bilinmeyen canlı gözlemi"} 
+              className="h-full w-full object-cover" 
+              onError={(e) => console.error("Görsel yüklenemedi: ", post.images[slide]?.url)}
+            />
+            {post.images.length > 1 && (
+              <>
+                <button 
+                  onClick={() => setSlide((slide - 1 + post.images.length) % post.images.length)} 
+                  className="absolute left-3 top-1/2 grid h-11 w-11 -translate-y-1/2 cursor-pointer place-items-center rounded-full bg-[#f7f7f7]/90 opacity-100 shadow sm:opacity-0 sm:group-hover:opacity-100" 
+                  aria-label="Önceki fotoğraf"
+                >
+                  <ChevronLeft />
+                </button>
+                <button 
+                  onClick={() => setSlide((slide + 1) % post.images.length)} 
+                  className="absolute right-3 top-1/2 grid h-11 w-11 -translate-y-1/2 cursor-pointer place-items-center rounded-full bg-[#f7f7f7]/90 opacity-100 shadow sm:opacity-0 sm:group-hover:opacity-100" 
+                  aria-label="Sonraki fotoğraf"
+                >
+                  <ChevronRight />
+                </button>
+                <span className="absolute bottom-3 right-3 rounded-full bg-[#09352e]/85 px-2.5 py-1 font-mono text-[11px] text-white">
+                  {slide + 1}/{post.images.length}
+                </span>
+              </>
+            )}
+          </div>
+          
+          {post.images[slide]?.url && (
+            <div className="mt-2 rounded bg-red-50 p-2 font-mono text-[10px] text-red-600 break-all border border-red-200">
+              <strong>URL LOG:</strong> {post.images[slide].url}
+            </div>
           )}
         </div>
       )}
 
-      {/* Gönderi Detayları */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="mb-1 flex items-center gap-2">
@@ -122,7 +128,6 @@ export default function PostCard({ post, compact = false }: { post: BioPost; com
 
       {!compact && <p className="mt-4 whitespace-pre-wrap text-[15px] leading-7 text-[#354f43]">{post.description}</p>}
       
-      {/* Meta Veriler */}
       <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 font-mono text-[11px] text-[#5f7169]">
         <span className="inline-flex items-center gap-1.5"><MapPin size={14} />{post.locality}, {post.city}</span>
         <span className="inline-flex items-center gap-1.5"><CalendarDays size={14} />{formatDate(post.createdAt)} · {seasonOf(post.createdAt)}</span>
@@ -142,7 +147,6 @@ export default function PostCard({ post, compact = false }: { post: BioPost; com
 
       {message && <p className="mt-3 text-sm text-[#007f24]">{message}</p>}
 
-      {/* Raporlama Modalı */}
       {reporting && (
         <div 
           className="fixed inset-0 z-50 grid place-items-center bg-[#09352e]/55 p-4" 
