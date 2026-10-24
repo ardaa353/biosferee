@@ -2,7 +2,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { v2 as cloudinary } from "cloudinary"; // CLOUDINARY EKLENDİ
+import { v2 as cloudinary } from "cloudinary";
 
 import {
   createRouter,
@@ -31,7 +31,6 @@ const CLOUDINARY_CLOUD_NAME =
   process.env.VITE_CLOUDINARY_CLOUD_NAME ||
   "whjqcubr";
 
-// CLOUDINARY ADMIN YAPILANDIRMASI (SİLME İŞLEMİ İÇİN EKLENDİ)
 cloudinary.config({
   cloud_name: CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -247,9 +246,9 @@ export const biosfereRouter = createRouter({
             .toLowerCase()
             .regex(/^[a-z0-9_]{3,40}$/, "Kullanıcı adı 3–40 karakter; harf, sayı ve alt çizgi içerebilir."),
           email: z.string().trim().toLowerCase().email().max(320),
-          phone: z.string().trim().min(10).max(30),
+          phone: z.string().trim().min(10).max(30).optional(),
           password: z.string().min(8, "Şifre en az 8 karakter olmalı.").max(100),
-          bio: z.string().trim().min(3).max(1000),
+          bio: z.string().trim().min(3).max(1000).optional(),
         })
       )
       .mutation(async ({ input }) => {
@@ -266,7 +265,7 @@ export const biosfereRouter = createRouter({
 
         const [{ id }] = await db
           .insert(users)
-          .values({ ...input, passwordHash: hashPassword(input.password), role })
+          .values({ ...input, passwordHash: hashPassword(input.password), role, bio: input.bio || "" })
           .$returningId();
 
         const [user] = await db.select().from(users).where(eq(users.id, id));
@@ -316,6 +315,34 @@ export const biosfereRouter = createRouter({
         return { ok: true };
       }),
 
+    updateSettings: authedQuery
+      .input(z.object({ 
+        email: z.string().trim().toLowerCase().email().max(320).optional(),
+        phone: z.string().trim().min(10).max(30).optional(),
+        password: z.string().min(8).max(100).optional()
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const db = getDb();
+        const updates: any = {};
+
+        if (input.email && input.email !== ctx.user.email) {
+          const existingMail = await db.select({ id: users.id }).from(users).where(eq(users.email, input.email)).limit(1);
+          if (existingMail.length) {
+            throw new TRPCError({ code: "CONFLICT", message: "Bu e-posta adresi başka bir kullanıcı tarafından kullanılıyor." });
+          }
+          updates.email = input.email;
+        }
+
+        if (input.phone) updates.phone = input.phone;
+        if (input.password) updates.passwordHash = hashPassword(input.password);
+
+        if (Object.keys(updates).length > 0) {
+          await db.update(users).set(updates).where(eq(users.id, ctx.user.id));
+        }
+
+        return { ok: true };
+      }),
+
     setRole: adminQuery
       .input(z.object({ userId: z.number(), role: z.enum(["user", "moderator", "admin"]) }))
       .mutation(async ({ ctx, input }) => {
@@ -326,6 +353,73 @@ export const biosfereRouter = createRouter({
           throw new TRPCError({ code: "BAD_REQUEST", message: "Kendi admin yetkinizi kaldıramazsınız." });
         }
         await getDb().update(users).set({ role: input.role }).where(eq(users.id, input.userId));
+        return { ok: true };
+      }),
+
+    delete: authedQuery
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const db = getDb();
+
+        if (ctx.user.id !== input.userId && ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Bu hesabı silme yetkiniz yok." });
+        }
+
+        const [targetUser] = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
+        if (!targetUser) throw new TRPCError({ code: "NOT_FOUND", message: "Kullanıcı bulunamadı." });
+
+        if (targetUser.avatarKey) {
+          try {
+            const parts = targetUser.avatarKey.split("/upload/");
+            if (parts.length > 1) {
+              let publicId = parts[1].replace(/^v\d+\//, "");
+              publicId = publicId.substring(0, publicId.lastIndexOf(".")) || publicId;
+              await cloudinary.uploader.destroy(publicId);
+            }
+          } catch (err) {
+            console.error("Cloudinary profil resmi silme hatası:", err);
+          }
+        }
+
+        const userPosts = await db.select({ id: posts.id }).from(posts).where(eq(posts.authorId, targetUser.id));
+        if (userPosts.length > 0) {
+          const postIds = userPosts.map(p => p.id);
+          const imagesToDelete = await db.select().from(postImages).where(inArray(postImages.postId, postIds));
+          
+          for (const img of imagesToDelete) {
+            try {
+              const parts = img.fileKey.split("/upload/");
+              if (parts.length > 1) {
+                let publicId = parts[1].replace(/^v\d+\//, "");
+                publicId = publicId.substring(0, publicId.lastIndexOf(".")) || publicId;
+                await cloudinary.uploader.destroy(publicId);
+              }
+            } catch (err) {
+              console.error("Cloudinary post resmi silme hatası:", err);
+            }
+          }
+        }
+
+        await db.transaction(async (tx) => {
+          await tx.delete(sessions).where(eq(sessions.userId, targetUser.id));
+          await tx.delete(likes).where(eq(likes.userId, targetUser.id));
+          await tx.delete(collaborators).where(eq(collaborators.userId, targetUser.id));
+          await tx.delete(reports).where(eq(reports.reporterId, targetUser.id));
+          await tx.delete(suggestions).where(eq(suggestions.userId, targetUser.id));
+          
+          if (userPosts.length > 0) {
+            const postIds = userPosts.map(p => p.id);
+            await tx.delete(postImages).where(inArray(postImages.postId, postIds));
+            await tx.delete(likes).where(inArray(likes.postId, postIds));
+            await tx.delete(reports).where(inArray(reports.postId, postIds));
+            await tx.delete(suggestions).where(inArray(suggestions.postId, postIds));
+            await tx.delete(collaborators).where(inArray(collaborators.postId, postIds));
+            await tx.delete(posts).where(eq(posts.authorId, targetUser.id));
+          }
+
+          await tx.delete(users).where(eq(users.id, targetUser.id));
+        });
+
         return { ok: true };
       }),
   }),
@@ -447,7 +541,6 @@ export const biosfereRouter = createRouter({
         return { ok: true };
       }),
 
-    // YENİ EKLENEN SİLME İŞLEMİ (CLOUD VE DB TEMİZLİĞİ)
     delete: authedQuery
       .input(z.object({ postId: z.number() }))
       .mutation(async ({ ctx, input }) => {
@@ -462,7 +555,6 @@ export const biosfereRouter = createRouter({
           throw new TRPCError({ code: "FORBIDDEN", message: "Bu gönderiyi silme yetkiniz yok." });
         }
 
-        // 1. Cloudinary'den resimleri sil
         const images = await db.select().from(postImages).where(eq(postImages.postId, post.id));
         for (const img of images) {
           try {
@@ -477,7 +569,6 @@ export const biosfereRouter = createRouter({
           }
         }
 
-        // 2. Veritabanından bağlı tüm verileri ve postu transaction ile kalıcı olarak temizle (Hard Delete)
         await db.transaction(async (tx) => {
           await tx.delete(likes).where(eq(likes.postId, post.id));
           await tx.delete(reports).where(eq(reports.postId, post.id));
