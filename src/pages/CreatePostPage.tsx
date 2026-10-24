@@ -1,103 +1,267 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router";
-import { ArrowUpRight, MapPin, Search } from "lucide-react";
+import { useMemo, useState, type FormEvent } from "react";
+import { useNavigate, useSearchParams } from "react-router";
+import { Crosshair, ImagePlus, X } from "lucide-react";
 import { trpc } from "@/providers/trpc";
-import BioMap from "@/components/BioMap";
-import { Avatar, Empty, Loading, PageHeading, inputClass } from "@/components/BioUI";
-import type { BioPost } from "@/lib/types";
+import { useAuth } from "@/lib/auth";
+import { emptyTaxonomy } from "@/lib/types";
+import { errorMessage, toImageInputs } from "@/lib/utils";
+import { Field, PageHeading, buttonClass, inputClass, secondaryButton } from "@/components/BioUI";
+import { LocationPicker } from "@/components/BioMap";
 
-// ==========================================
-// 1. HARİTA SAYFASI (MapPage)
-// ==========================================
-export function MapPage() {
-  const query = trpc.biosfere.posts.list.useQuery();
-  const [filter, setFilter] = useState("all");
+const taxLabels: [keyof typeof emptyTaxonomy, string][] = [
+  ["kingdom", "Alem"],
+  ["phylum", "Şube"],
+  ["className", "Sınıf"],
+  ["orderName", "Takım"],
+  ["family", "Familya"],
+  ["genus", "Cins"],
+  ["species", "Bilimsel tür adı"],
+  ["commonName", "Türkçe yaygın ad"]
+];
+
+export default function CreatePostPage() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
   
-  const posts = (query.data ?? []).filter((p) => {
-    if (p.status === "removed") return false;
-    if (filter === "all") return true;
-    if (filter === "unknown") return p.status === "unknown";
-    return p.kingdom === filter;
-  });
+  // State Tanımlamaları
+  const [unknown, setUnknown] = useState(params.get("bilinmiyor") === "1");
+  const [tax, setTax] = useState(emptyTaxonomy);
+  const [description, setDescription] = useState("");
+  const [city, setCity] = useState("");
+  const [locality, setLocality] = useState("");
+  const [lat, setLat] = useState(39.0);
+  const [lng, setLng] = useState(35.0);
+  const [files, setFiles] = useState<File[]>([]);
+  const [collaboratorIds, setCollaboratorIds] = useState<number[]>([]);
+  const [error, setError] = useState("");
 
-  const filterOptions = ["all", "Animalia", "Plantae", "Fungi", "Bacteria", "Protista", "unknown"];
+  // TRPC Query ve Mutasyonları
+  const users = trpc.biosfere.users.list.useQuery();
+  const create = trpc.biosfere.posts.create.useMutation();
+
+  const previews = useMemo(
+    () => files.map((f) => ({ name: f.name, url: URL.createObjectURL(f) })),
+    [files]
+  );
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setError("");
+    
+    try {
+      const images = await toImageInputs(files);
+      const result = await create.mutateAsync({
+        description,
+        unknown,
+        ...tax,
+        city,
+        locality,
+        lat,
+        lng,
+        images,
+        collaboratorIds
+      });
+      navigate(`/gonderi/${result.id}`);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  function gps() {
+    if (!navigator.geolocation) {
+      return setError("Tarayıcınız konum özelliğini desteklemiyor.");
+    }
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        setLat(p.coords.latitude);
+        setLng(p.coords.longitude);
+      },
+      () => setError("Konum izni alınamadı. Haritadan nokta seçebilirsiniz.")
+    );
+  }
 
   return (
-    <div>
+    <div className="mx-auto max-w-4xl">
       <PageHeading 
-        eyebrow="Koordinatlı açık kayıtlar" 
-        title="Ortak canlı haritası" 
-        description="Her nokta gerçek bir kullanıcı gözlemini gösterir. Noktaya dokunarak türü, lokali ve gönderi bağlantısını açabilirsiniz." 
+        eyebrow="Yeni saha kaydı" 
+        title="Gözlem paylaş" 
+        description="Fotoğrafları, konumu ve biyolojik notları ekleyin. Kayıt tarihi ve mevsimi sistem tarafından otomatik eklenir." 
       />
       
-      <div className="mb-4 flex flex-wrap gap-2">
-        {filterOptions.map((f) => (
-          <button 
-            key={f} 
-            onClick={() => setFilter(f)} 
-            className={`min-h-10 cursor-pointer rounded-full border px-4 text-xs font-semibold ${
-              filter === f 
-                ? "border-[#09352e] bg-[#09352e] text-white" 
-                : "border-[#09352e]/20 hover:border-[#007f24]"
-            }`}
-          >
-            {f === "all" ? "Tümü" : f === "unknown" ? "Bilinmeyenler" : f}
+      <form onSubmit={submit} className="space-y-9">
+        {/* Bilinmeyen Tür Etiketi */}
+        <section>
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#a96d15]/30 bg-[#f2e5c9]/60 p-4">
+            <input 
+              type="checkbox" 
+              checked={unknown} 
+              onChange={(e) => setUnknown(e.target.checked)} 
+              className="mt-1 h-5 w-5 accent-[#007f24]" 
+            />
+            <span>
+              <strong className="text-sm">Türü bilinmiyor etiketiyle paylaş</strong>
+              <span className="mt-1 block text-sm leading-6 text-[#5f593f]">
+                Gönderi bilinmeyenler bölümüne eklenir; kullanıcılar Alem → Tür önerisi gönderebilir.
+              </span>
+            </span>
+          </label>
+        </section>
+
+        {/* Sistematik Bilgiler */}
+        {!unknown && (
+          <section>
+            <h2 className="mb-4 font-serif text-2xl">01 / Sistematik bilgiler</h2>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {taxLabels.map(([key, label]) => (
+                <Field key={key} label={`${label} *`}>
+                  {key === "kingdom" ? (
+                    <select 
+                      className={inputClass} 
+                      value={tax[key]} 
+                      onChange={(e) => setTax({ ...tax, [key]: e.target.value })}
+                    >
+                      {["Animalia", "Plantae", "Fungi", "Protista", "Bacteria", "Archaea"].map((k) => (
+                        <option key={k}>{k}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input 
+                      className={inputClass} 
+                      value={tax[key]} 
+                      onChange={(e) => setTax({ ...tax, [key]: e.target.value })} 
+                      required 
+                    />
+                  )}
+                </Field>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Fotoğraflar */}
+        <section>
+          <h2 className="mb-4 font-serif text-2xl">{unknown ? "01" : "02"} / Fotoğraflar</h2>
+          <label className="flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-[#007f24]/45 bg-[#85c093]/10 p-6 text-center transition hover:bg-[#85c093]/20">
+            <ImagePlus className="mb-2 text-[#007f24]" />
+            <strong className="text-sm">Fotoğraf seç</strong>
+            <span className="mt-1 text-xs text-[#5f7169]">En fazla 8 fotoğraf · her biri en fazla 12 MB</span>
+            <input 
+              type="file" 
+              accept="image/jpeg,image/png,image/webp,image/gif" 
+              multiple 
+              className="sr-only" 
+              onChange={(e) => setFiles(Array.from(e.target.files ?? []).slice(0, 8))} 
+              required={files.length === 0} 
+            />
+          </label>
+          
+          {previews.length > 0 && (
+            <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-4">
+              {previews.map((p, i) => (
+                <div key={p.url} className="relative aspect-square overflow-hidden rounded-lg">
+                  <img src={p.url} alt={p.name} className="h-full w-full object-cover" />
+                  <button 
+                    type="button" 
+                    onClick={() => setFiles(files.filter((_, index) => index !== i))} 
+                    className="absolute right-1 top-1 grid h-8 w-8 place-items-center rounded-full bg-[#f7f7f7]" 
+                    aria-label="Fotoğrafı kaldır"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Konum */}
+        <section>
+          <div className="mb-4 flex items-end justify-between">
+            <h2 className="font-serif text-2xl">{unknown ? "02" : "03"} / Konum</h2>
+            <button 
+              type="button" 
+              onClick={gps} 
+              className="flex min-h-11 items-center gap-2 text-xs font-semibold text-[#007f24]"
+            >
+              <Crosshair size={16} />Mevcut konumum
+            </button>
+          </div>
+          
+          <div className="mb-4 grid gap-4 sm:grid-cols-2">
+            <Field label="Şehir *">
+              <input className={inputClass} value={city} onChange={(e) => setCity(e.target.value)} placeholder="Örn. Giresun" required />
+            </Field>
+            <Field label="Lokalite / habitat *">
+              <input className={inputClass} value={locality} onChange={(e) => setLocality(e.target.value)} placeholder="Örn. Bulancak Yaylası" required />
+            </Field>
+          </div>
+          
+          <LocationPicker lat={lat} lng={lng} onChange={(la, ln) => { setLat(la); setLng(ln); }} />
+          
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <Field label="Enlem">
+              <input className={inputClass} type="number" step="any" value={lat} onChange={(e) => setLat(Number(e.target.value))} required />
+            </Field>
+            <Field label="Boylam">
+              <input className={inputClass} type="number" step="any" value={lng} onChange={(e) => setLng(Number(e.target.value))} required />
+            </Field>
+          </div>
+        </section>
+
+        {/* Ortak Çalışma */}
+        <section>
+          <h2 className="mb-4 font-serif text-2xl">{unknown ? "03" : "04"} / Ortak çalışma</h2>
+          <p className="mb-3 text-sm text-[#5f7169]">Gözleme katkı veren kullanıcıları seçin. Bu kişiler gönderide ortak yazar olarak görünür.</p>
+          <div className="grid max-h-52 gap-2 overflow-y-auto rounded-xl border border-[#09352e]/15 p-3 sm:grid-cols-2">
+            {users.data?.filter((u) => u.id !== user?.id).map((u) => (
+              <label key={u.id} className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm hover:bg-[#85c093]/15">
+                <input 
+                  type="checkbox" 
+                  className="h-4 w-4 accent-[#007f24]" 
+                  checked={collaboratorIds.includes(u.id)} 
+                  onChange={(e) => setCollaboratorIds(
+                    e.target.checked 
+                      ? [...collaboratorIds, u.id] 
+                      : collaboratorIds.filter((id) => id !== u.id)
+                  )} 
+                />
+                <span>{u.firstName} {u.lastName}</span>
+                <span className="font-mono text-[10px] text-[#71807e]">@{u.username}</span>
+              </label>
+            ))}
+          </div>
+        </section>
+
+        {/* Notlar */}
+        <section>
+          <h2 className="mb-4 font-serif text-2xl">{unknown ? "04" : "05"} / Gözlem notları</h2>
+          <Field label="Tür ve gözlem hakkında bilgilendirme *">
+            <textarea 
+              className={`${inputClass} min-h-36 resize-y`} 
+              value={description} 
+              onChange={(e) => setDescription(e.target.value)} 
+              minLength={10} 
+              maxLength={5000} 
+              placeholder="Morfolojik özellikler, habitat, büyütme oranı ve ekolojik notlar…" 
+              required 
+            />
+          </Field>
+        </section>
+
+        {error && (
+          <p role="alert" className="rounded-lg border border-[#a63f36]/30 bg-[#a63f36]/5 p-4 text-sm text-[#8d302a]">
+            {error}
+          </p>
+        )}
+
+        <div className="flex justify-end gap-3 border-t border-[#09352e]/15 pt-6">
+          <button type="button" onClick={() => navigate(-1)} className={secondaryButton}>Vazgeç</button>
+          <button className={buttonClass} disabled={create.isPending}>
+            {create.isPending ? "Fotoğraflar ve kayıt yükleniyor…" : "Gözlemi yayınla"}
           </button>
-        ))}
-      </div>
-      
-      {query.isLoading ? (
-        <Loading />
-      ) : (
-        <div className="overflow-hidden rounded-xl border border-[#09352e]/15">
-          <BioMap posts={posts} />
         </div>
-      )}
-      <p className="mt-3 font-mono text-[11px] text-[#71807e]">
-        {posts.length} gözlem noktası gösteriliyor · Harita altlığı Esri / OpenStreetMap katkıcıları
-      </p>
+      </form>
     </div>
   );
 }
-
-// ==========================================
-// 2. ARAMA SAYFASI (SearchPage)
-// ==========================================
-export function SearchPage() {
-  const postsQuery = trpc.biosfere.posts.list.useQuery();
-  const usersQuery = trpc.biosfere.users.list.useQuery();
-  
-  const [term, setTerm] = useState("");
-  const [mode, setMode] = useState<"all" | "city">("all");
-  
-  const results = useMemo(() => {
-    const q = term.trim().toLocaleLowerCase("tr-TR");
-    const posts = (postsQuery.data ?? []).filter((p) => p.status === "verified");
-    
-    if (!q) return [];
-    
-    if (mode === "city") {
-      const matching = posts.filter((p) => p.city.toLocaleLowerCase("tr-TR").includes(q));
-      const counts = new Map<string, number>();
-      
-      posts.forEach((p) => p.species && counts.set(p.species, (counts.get(p.species) ?? 0) + 1));
-      return matching.sort((a, b) => (counts.get(a.species ?? "") ?? 0) - (counts.get(b.species ?? "") ?? 0));
-    }
-    
-    return posts.filter((p) => 
-      [p.species, p.commonName, p.genus, p.family, p.city, p.author.username, p.author.firstName, p.author.lastName]
-        .some((v) => v?.toLocaleLowerCase("tr-TR").includes(q))
-    );
-  }, [postsQuery.data, term, mode]);
-  
-  const matchingUsers = term && mode === "all" 
-    ? (usersQuery.data ?? []).filter((u) => 
-        `${u.firstName}${u.lastName} ${u.username}`.toLocaleLowerCase("tr-TR").includes(term.toLocaleLowerCase("tr-TR")) ) : [];  return ( <div className="mx-auto max-w-5xl"> <PageHeading eyebrow="Tür, cins, kişi ve şehir" title="Kayıtlarda keşfet" description="Şehir kipinde sonuçlar, türün platformdaki fotoğraf sayısına göre en az kayıtlı olandan en çok kayıtlı olana doğru sıralanır." />  <div className="relative"> <Search className="absolute left-4 top-4 text-[#007f24]" size={20} /> <input autoFocus className={`${inputClass} min-h-14 pl-12 pr-32 text-base`} 
-          value={term} 
-          onChange={(e) => setTerm(e.target.value)} 
-          placeholder={mode === "city" ? "Şehir yazın: Giresun, Van…" : "Tür, cins, kişi veya konum yazın…"} 
-        />
-        <div className="absolute right-2 top-2 flex rounded-full bg-[#e4ebe3] p-1">
-          <button 
-            onClick={() => setMode("all")} 
-            className={`min-
