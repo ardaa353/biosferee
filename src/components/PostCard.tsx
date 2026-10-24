@@ -84,11 +84,6 @@ export default function PostCard({ post, compact = false }: { post: BioPost; com
             )}
           </div>
           
-          {post.images[slide]?.url && (
-            <div className="mt-2 rounded bg-red-50 p-2 font-mono text-[10px] text-red-600 break-all border border-red-200">
-              <strong>URL LOG:</strong> {post.images[slide].url}
-            </div>
-          )}
         </div>
       )}
 
