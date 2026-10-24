@@ -4,7 +4,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, CircleHelp, Flag, Heart, MapPi
 import { trpc } from "@/providers/trpc";
 import type { BioPost } from "@/lib/types";
 import { cn, errorMessage, formatDate, seasonOf } from "@/lib/utils";
-import { Avatar, buttonClass, inputClass, secondaryButton } from "./BioUI";
+import { Avatar, buttonClass, inputClass, secondaryButton } from "@/components/BioUI";
 
 export default function PostCard({ post, compact = false }: { post: BioPost; compact?: boolean }) {
   const [slide, setSlide] = useState(0); 
@@ -48,6 +48,14 @@ export default function PostCard({ post, compact = false }: { post: BioPost; com
 
   return (
     <article className="overflow-hidden border-b border-[#09352e]/15 pb-7" id={`gonderi-${post.id}`}>
+      
+      {/* HATA TESPİT KUTUSU: Veritabanından resim için tam olarak ne geldiğini ekrana basar */}
+      {post.images && post.images.length > 0 && (
+        <pre className="bg-red-100 text-red-900 p-2 text-[10px] overflow-auto mb-4 rounded border border-red-300">
+          {JSON.stringify(post.images[0], null, 2)}
+        </pre>
+      )}
+
       <header className="mb-4 flex items-center gap-3">
         <Link to={`/profil/${post.author.username}`}>
           <Avatar user={post.author} />
