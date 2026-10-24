@@ -1,12 +1,30 @@
-import { useMemo, useState, type FormEvent } from "react";
+
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { Crosshair, ImagePlus, X } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/lib/auth";
 import { emptyTaxonomy } from "@/lib/types";
-import { errorMessage, toImageInputs } from "@/lib/utils";
-import { Field, PageHeading, buttonClass, inputClass, secondaryButton } from "@/components/BioUI";
+import { errorMessage } from "@/lib/utils";
+import { uploadToCloudinary } from "@/lib/cloudinary";
+import {
+  Field,
+  PageHeading,
+  buttonClass,
+  inputClass,
+  secondaryButton,
+} from "@/components/BioUI";
 import { LocationPicker } from "@/components/BioMap";
+
+const MAX_IMAGES = 8;
+const MAX_FILE_SIZE = 12 * 1024 * 1024;
+
+const ALLOWED_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+];
 
 const taxLabels: [keyof typeof emptyTaxonomy, string][] = [
   ["kingdom", "Alem"],
@@ -16,15 +34,18 @@ const taxLabels: [keyof typeof emptyTaxonomy, string][] = [
   ["family", "Familya"],
   ["genus", "Cins"],
   ["species", "Bilimsel tür adı"],
-  ["commonName", "Türkçe yaygın ad"]
+  ["commonName", "Türkçe yaygın ad"],
 ];
 
 export default function CreatePostPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  
-  const [unknown, setUnknown] = useState(params.get("bilinmiyor") === "1");
+
+  const [unknown, setUnknown] = useState(
+    params.get("bilinmiyor") === "1"
+  );
+
   const [tax, setTax] = useState(emptyTaxonomy);
   const [description, setDescription] = useState("");
   const [city, setCity] = useState("");
@@ -34,99 +55,263 @@ export default function CreatePostPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [collaboratorIds, setCollaboratorIds] = useState<number[]>([]);
   const [error, setError] = useState("");
+  const [uploadProgress, setUploadProgress] = useState("");
 
   const users = trpc.biosfere.users.list.useQuery();
   const create = trpc.biosfere.posts.create.useMutation();
 
+  // Önizleme adresleri yalnızca tarayıcıda kullanılır.
+  // Bu adresler dosyaları sunucuya veya yerel klasöre kaydetmez.
   const previews = useMemo(
-    () => files.map((f) => ({ name: f.name, url: URL.createObjectURL(f) })),
+    () =>
+      files.map((file) => ({
+        name: file.name,
+        url: URL.createObjectURL(file),
+      })),
     [files]
   );
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
+  // Önizleme adreslerini bileşen güncellendiğinde temizle.
+  useEffect(() => {
+    return () => {
+      previews.forEach((preview) => {
+        URL.revokeObjectURL(preview.url);
+      });
+    };
+  }, [previews]);
+
+  function handleFileChange(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
     setError("");
-    
+
+    const selectedFiles = Array.from(event.target.files ?? []);
+    event.target.value = "";
+
+    if (selectedFiles.length === 0) return;
+
+    const remainingSlots = MAX_IMAGES - files.length;
+
+    if (remainingSlots <= 0) {
+      setError(`En fazla ${MAX_IMAGES} fotoğraf ekleyebilirsin.`);
+      return;
+    }
+
+    const validFiles: File[] = [];
+
+    for (const file of selectedFiles) {
+      if (files.length + validFiles.length >= MAX_IMAGES) {
+        setError(`En fazla ${MAX_IMAGES} fotoğraf ekleyebilirsin.`);
+        break;
+      }
+
+      if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+        setError(
+          `${file.name}: Yalnızca JPEG, PNG, WebP veya GIF yükleyebilirsin.`
+        );
+        continue;
+      }
+
+      if (file.size > MAX_FILE_SIZE) {
+        setError(`${file.name}: Fotoğraf en fazla 12 MB olabilir.`);
+        continue;
+      }
+
+      validFiles.push(file);
+    }
+
+    if (validFiles.length > 0) {
+      setFiles((current) =>
+        [...current, ...validFiles].slice(0, MAX_IMAGES)
+      );
+    }
+  }
+
+  function removeFile(indexToRemove: number) {
+    setFiles((current) =>
+      current.filter((_, index) => index !== indexToRemove)
+    );
+    setError("");
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setUploadProgress("");
+
+    if (files.length === 0) {
+      setError("Lütfen en az bir fotoğraf seç.");
+      return;
+    }
+
+    if (description.trim().length < 10) {
+      setError("Gözlem notu en az 10 karakter olmalıdır.");
+      return;
+    }
+
+    if (!city.trim() || !locality.trim()) {
+      setError("Şehir ve lokalite alanlarını doldurmalısın.");
+      return;
+    }
+
+    if (
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lng) ||
+      lat < -90 ||
+      lat > 90 ||
+      lng < -180 ||
+      lng > 180
+    ) {
+      setError("Geçerli bir enlem ve boylam gir.");
+      return;
+    }
+
     try {
-      const images = await toImageInputs(files);
+      // 1. Fotoğrafları doğrudan Cloudinary'ye yükle.
+      // Fotoğraf verisi uygulamanın sunucusuna gönderilmez.
+      setUploadProgress("Fotoğraflar buluta yükleniyor…");
+
+      const images = await Promise.all(
+        files.map(async (file) => {
+          const cloudinaryUrl = await uploadToCloudinary(file);
+
+          return {
+            name: file.name,
+            contentType: file.type,
+
+            // Router'daki mevcut imageInput şemasını koruyoruz.
+            // Bu alanda artık Base64 değil, Cloudinary URL'si bulunur.
+            contentBase64: cloudinaryUrl,
+          };
+        })
+      );
+
+      // 2. Veritabanına fotoğraf dosyalarını değil,
+      // Cloudinary adreslerini içeren kayıtları gönder.
+      setUploadProgress("Gözlem kaydı oluşturuluyor…");
+
       const result = await create.mutateAsync({
-        description,
+        description: description.trim(),
         unknown,
         ...tax,
-        city,
-        locality,
+        city: city.trim(),
+        locality: locality.trim(),
         lat,
         lng,
         images,
-        collaboratorIds
+        collaboratorIds,
       });
+
+      // 3. Oluşturulan gönderiye git.
       navigate(`/gonderi/${result.id}`);
     } catch (err) {
       setError(errorMessage(err));
+    } finally {
+      setUploadProgress("");
     }
   }
 
   function gps() {
     if (!navigator.geolocation) {
-      return setError("Tarayıcınız konum özelliğini desteklemiyor.");
+      setError("Tarayıcın konum özelliğini desteklemiyor.");
+      return;
     }
+
     navigator.geolocation.getCurrentPosition(
-      (p) => {
-        setLat(p.coords.latitude);
-        setLng(p.coords.longitude);
+      (position) => {
+        setLat(position.coords.latitude);
+        setLng(position.coords.longitude);
+        setError("");
       },
-      () => setError("Konum izni alınamadı. Haritadan nokta seçebilirsiniz.")
+      () => {
+        setError(
+          "Konum izni alınamadı. Haritadan nokta seçebilirsin."
+        );
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+      }
     );
   }
 
   return (
     <div className="mx-auto max-w-4xl">
-      <PageHeading 
-        eyebrow="Yeni saha kaydı" 
-        title="Gözlem paylaş" 
-        description="Fotoğrafları, konumu ve biyolojik notları ekleyin. Kayıt tarihi ve mevsimi sistem tarafından otomatik eklenir." 
+      <PageHeading
+        eyebrow="Yeni saha kaydı"
+        title="Gözlem paylaş"
+        description="Fotoğrafları, konumu ve biyolojik notları ekleyin. Kayıt tarihi ve mevsimi sistem tarafından otomatik eklenir."
       />
-      
+
       <form onSubmit={submit} className="space-y-9">
+        {/* Tür bilgisi */}
         <section>
           <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#a96d15]/30 bg-[#f2e5c9]/60 p-4">
-            <input 
-              type="checkbox" 
-              checked={unknown} 
-              onChange={(e) => setUnknown(e.target.checked)} 
-              className="mt-1 h-5 w-5 accent-[#007f24]" 
+            <input
+              type="checkbox"
+              checked={unknown}
+              onChange={(event) => setUnknown(event.target.checked)}
+              className="mt-1 h-5 w-5 accent-[#007f24]"
             />
+
             <span>
-              <strong className="text-sm">Türü bilinmiyor etiketiyle paylaş</strong>
+              <strong className="text-sm">
+                Türü bilinmiyor etiketiyle paylaş
+              </strong>
+
               <span className="mt-1 block text-sm leading-6 text-[#5f593f]">
-                Gönderi bilinmeyenler bölümüne eklenir; kullanıcılar Alem → Tür önerisi gönderebilir.
+                Gönderi bilinmeyenler bölümüne eklenir; kullanıcılar
+                Alem → Tür önerisi gönderebilir.
               </span>
             </span>
           </label>
         </section>
 
+        {/* Taksonomi */}
         {!unknown && (
           <section>
-            <h2 className="mb-4 font-serif text-2xl">01 / Sistematik bilgiler</h2>
+            <h2 className="mb-4 font-serif text-2xl">
+              01 / Sistematik bilgiler
+            </h2>
+
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {taxLabels.map(([key, label]) => (
                 <Field key={key} label={`${label} *`}>
                   {key === "kingdom" ? (
-                    <select 
-                      className={inputClass} 
-                      value={tax[key]} 
-                      onChange={(e) => setTax({ ...tax, [key]: e.target.value })}
+                    <select
+                      className={inputClass}
+                      value={tax[key]}
+                      onChange={(event) =>
+                        setTax({
+                          ...tax,
+                          [key]: event.target.value,
+                        })
+                      }
                     >
-                      {["Animalia", "Plantae", "Fungi", "Protista", "Bacteria", "Archaea"].map((k) => (
-                        <option key={k}>{k}</option>
+                      {[
+                        "Animalia",
+                        "Plantae",
+                        "Fungi",
+                        "Protista",
+                        "Bacteria",
+                        "Archaea",
+                      ].map((kingdom) => (
+                        <option key={kingdom} value={kingdom}>
+                          {kingdom}
+                        </option>
                       ))}
                     </select>
                   ) : (
-                    <input 
-                      className={inputClass} 
-                      value={tax[key]} 
-                      onChange={(e) => setTax({ ...tax, [key]: e.target.value })} 
-                      required 
+                    <input
+                      className={inputClass}
+                      value={tax[key]}
+                      onChange={(event) =>
+                        setTax({
+                          ...tax,
+                          [key]: event.target.value,
+                        })
+                      }
+                      required
                     />
                   )}
                 </Field>
@@ -135,122 +320,247 @@ export default function CreatePostPage() {
           </section>
         )}
 
+        {/* Fotoğraflar */}
         <section>
-          <h2 className="mb-4 font-serif text-2xl">{unknown ? "01" : "02"} / Fotoğraflar</h2>
+          <h2 className="mb-4 font-serif text-2xl">
+            {unknown ? "01" : "02"} / Fotoğraflar
+          </h2>
+
           <label className="flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-[#007f24]/45 bg-[#85c093]/10 p-6 text-center transition hover:bg-[#85c093]/20">
             <ImagePlus className="mb-2 text-[#007f24]" />
+
             <strong className="text-sm">Fotoğraf seç</strong>
-            <span className="mt-1 text-xs text-[#5f7169]">En fazla 8 fotoğraf · her biri en fazla 12 MB</span>
-            <input 
-              type="file" 
-              accept="image/jpeg,image/png,image/webp,image/gif" 
-              multiple 
-              className="sr-only" 
-              onChange={(e) => setFiles(Array.from(e.target.files ?? []).slice(0, 8))} 
-              required={files.length === 0} 
+
+            <span className="mt-1 text-xs text-[#5f7169]">
+              En fazla 8 fotoğraf · her biri en fazla 12 MB
+            </span>
+
+            <span className="mt-1 text-xs text-[#5f7169]">
+              Fotoğraflar doğrudan bulut depolamasına yüklenir.
+            </span>
+
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              multiple
+              className="sr-only"
+              onChange={handleFileChange}
+              disabled={create.isPending}
             />
           </label>
-          
+
           {previews.length > 0 && (
             <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-4">
-              {previews.map((p, i) => (
-                <div key={p.url} className="relative aspect-square overflow-hidden rounded-lg">
-                  <img src={p.url} alt={p.name} className="h-full w-full object-cover" />
-                  <button 
-                    type="button" 
-                    onClick={() => setFiles(files.filter((_, index) => index !== i))} 
-                    className="absolute right-1 top-1 grid h-8 w-8 place-items-center rounded-full bg-[#f7f7f7]" 
+              {previews.map((preview, index) => (
+                <div
+                  key={`${preview.name}-${index}`}
+                  className="relative aspect-square overflow-hidden rounded-lg"
+                >
+                  <img
+                    src={preview.url}
+                    alt={preview.name}
+                    className="h-full w-full object-cover"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => removeFile(index)}
+                    disabled={create.isPending}
+                    className="absolute right-1 top-1 grid h-8 w-8 place-items-center rounded-full bg-[#f7f7f7] disabled:opacity-50"
                     aria-label="Fotoğrafı kaldır"
                   >
                     <X size={15} />
                   </button>
+
+                  <span className="absolute bottom-0 left-0 right-0 truncate bg-black/60 px-2 py-1 text-xs text-white">
+                    {preview.name}
+                  </span>
                 </div>
               ))}
             </div>
           )}
+
+          <p className="mt-2 text-xs text-[#5f7169]">
+            Seçim sırasında görünen önizlemeler geçicidir. Kalıcı
+            fotoğraflar Cloudinary üzerinde tutulur.
+          </p>
         </section>
 
+        {/* Konum */}
         <section>
           <div className="mb-4 flex items-end justify-between">
-            <h2 className="font-serif text-2xl">{unknown ? "02" : "03"} / Konum</h2>
-            <button 
-              type="button" 
-              onClick={gps} 
+            <h2 className="font-serif text-2xl">
+              {unknown ? "02" : "03"} / Konum
+            </h2>
+
+            <button
+              type="button"
+              onClick={gps}
               className="flex min-h-11 items-center gap-2 text-xs font-semibold text-[#007f24]"
             >
-              <Crosshair size={16} />Mevcut konumum
+              <Crosshair size={16} />
+              Mevcut konumum
             </button>
           </div>
-          
+
           <div className="mb-4 grid gap-4 sm:grid-cols-2">
             <Field label="Şehir *">
-              <input className={inputClass} value={city} onChange={(e) => setCity(e.target.value)} placeholder="Örn. Giresun" required />
+              <input
+                className={inputClass}
+                value={city}
+                onChange={(event) => setCity(event.target.value)}
+                placeholder="Örn. Giresun"
+                required
+              />
             </Field>
+
             <Field label="Lokalite / habitat *">
-              <input className={inputClass} value={locality} onChange={(e) => setLocality(e.target.value)} placeholder="Örn. Bulancak Yaylası" required />
+              <input
+                className={inputClass}
+                value={locality}
+                onChange={(event) => setLocality(event.target.value)}
+                placeholder="Örn. Bulancak Yaylası"
+                required
+              />
             </Field>
           </div>
-          
-          <LocationPicker lat={lat} lng={lng} onChange={(la, ln) => { setLat(la); setLng(ln); }} />
-          
+
+          <LocationPicker
+            lat={lat}
+            lng={lng}
+            onChange={(latitude, longitude) => {
+              setLat(latitude);
+              setLng(longitude);
+            }}
+          />
+
           <div className="mt-3 grid grid-cols-2 gap-3">
             <Field label="Enlem">
-              <input className={inputClass} type="number" step="any" value={lat} onChange={(e) => setLat(Number(e.target.value))} required />
+              <input
+                className={inputClass}
+                type="number"
+                step="any"
+                value={lat}
+                onChange={(event) => setLat(Number(event.target.value))}
+                required
+              />
             </Field>
+
             <Field label="Boylam">
-              <input className={inputClass} type="number" step="any" value={lng} onChange={(e) => setLng(Number(e.target.value))} required />
+              <input
+                className={inputClass}
+                type="number"
+                step="any"
+                value={lng}
+                onChange={(event) => setLng(Number(event.target.value))}
+                required
+              />
             </Field>
           </div>
         </section>
 
+        {/* Ortak çalışma */}
         <section>
-          <h2 className="mb-4 font-serif text-2xl">{unknown ? "03" : "04"} / Ortak çalışma</h2>
-          <p className="mb-3 text-sm text-[#5f7169]">Gözleme katkı veren kullanıcıları seçin. Bu kişiler gönderide ortak yazar olarak görünür.</p>
+          <h2 className="mb-4 font-serif text-2xl">
+            {unknown ? "03" : "04"} / Ortak çalışma
+          </h2>
+
+          <p className="mb-3 text-sm text-[#5f7169]">
+            Gözleme katkı veren kullanıcıları seçin. Bu kişiler
+            gönderide ortak yazar olarak görünür.
+          </p>
+
           <div className="grid max-h-52 gap-2 overflow-y-auto rounded-xl border border-[#09352e]/15 p-3 sm:grid-cols-2">
-            {users.data?.filter((u) => u.id !== user?.id).map((u) => (
-              <label key={u.id} className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm hover:bg-[#85c093]/15">
-                <input 
-                  type="checkbox" 
-                  className="h-4 w-4 accent-[#007f24]" 
-                  checked={collaboratorIds.includes(u.id)} 
-                  onChange={(e) => setCollaboratorIds(
-                    e.target.checked 
-                      ? [...collaboratorIds, u.id] 
-                      : collaboratorIds.filter((id) => id !== u.id)
-                  )} 
-                />
-                <span>{u.firstName} {u.lastName}</span>
-                <span className="font-mono text-[10px] text-[#71807e]">@{u.username}</span>
-              </label>
-            ))}
+            {users.data
+              ?.filter((person) => person.id !== user?.id)
+              .map((person) => (
+                <label
+                  key={person.id}
+                  className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm hover:bg-[#85c093]/15"
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-[#007f24]"
+                    checked={collaboratorIds.includes(person.id)}
+                    onChange={(event) =>
+                      setCollaboratorIds((current) =>
+                        event.target.checked
+                          ? [...current, person.id]
+                          : current.filter((id) => id !== person.id)
+                      )
+                    }
+                  />
+
+                  <span>
+                    {person.firstName} {person.lastName}
+                  </span>
+
+                  <span className="font-mono text-[10px] text-[#71807e]">
+                    @{person.username}
+                  </span>
+                </label>
+              ))}
           </div>
         </section>
 
+        {/* Gözlem notları */}
         <section>
-          <h2 className="mb-4 font-serif text-2xl">{unknown ? "04" : "05"} / Gözlem notları</h2>
+          <h2 className="mb-4 font-serif text-2xl">
+            {unknown ? "04" : "05"} / Gözlem notları
+          </h2>
+
           <Field label="Tür ve gözlem hakkında bilgilendirme *">
-            <textarea 
-              className={`${inputClass} min-h-36 resize-y`} 
-              value={description} 
-              onChange={(e) => setDescription(e.target.value)} 
-              minLength={10} 
-              maxLength={5000} 
-              placeholder="Morfolojik özellikler, habitat, büyütme oranı ve ekolojik notlar…" 
-              required 
+            <textarea
+              className={`${inputClass} min-h-36 resize-y`}
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              minLength={10}
+              maxLength={5000}
+              placeholder="Morfolojik özellikler, habitat, büyütme oranı ve ekolojik notlar…"
+              required
             />
           </Field>
         </section>
 
+        {/* Hata ve yükleme durumu */}
         {error && (
-          <p role="alert" className="rounded-lg border border-[#a63f36]/30 bg-[#a63f36]/5 p-4 text-sm text-[#8d302a]">
+          <p
+            role="alert"
+            className="rounded-lg border border-[#a63f36]/30 bg-[#a63f36]/5 p-4 text-sm text-[#8d302a]"
+          >
             {error}
           </p>
         )}
 
+        {uploadProgress && (
+          <p
+            role="status"
+            aria-live="polite"
+            className="rounded-lg border border-[#007f24]/20 bg-[#85c093]/10 p-4 text-sm text-[#007f24]"
+          >
+            {uploadProgress}
+          </p>
+        )}
+
+        {/* Form işlemleri */}
         <div className="flex justify-end gap-3 border-t border-[#09352e]/15 pt-6">
-          <button type="button" onClick={() => navigate(-1)} className={secondaryButton}>Vazgeç</button>
-          <button className={buttonClass} disabled={create.isPending}>
-            {create.isPending ? "Fotoğraflar ve kayıt yükleniyor…" : "Gözlemi yayınla"}
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className={secondaryButton}
+            disabled={create.isPending}
+          >
+            Vazgeç
+          </button>
+
+          <button
+            type="submit"
+            className={buttonClass}
+            disabled={create.isPending}
+          >
+            {create.isPending
+              ? "Fotoğraflar ve kayıt yükleniyor…"
+              : "Gözlemi yayınla"}
           </button>
         </div>
       </form>
