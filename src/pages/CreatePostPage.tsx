@@ -1,4 +1,3 @@
-
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { Crosshair, ImagePlus, X } from "lucide-react";
@@ -54,6 +53,7 @@ export default function CreatePostPage() {
   const [lng, setLng] = useState(35.0);
   const [files, setFiles] = useState<File[]>([]);
   const [collaboratorIds, setCollaboratorIds] = useState<number[]>([]);
+  const [collaboratorSearch, setCollaboratorSearch] = useState(""); // YENİ: Arama çubuğu için state
   const [error, setError] = useState("");
   const [uploadProgress, setUploadProgress] = useState("");
 
@@ -168,7 +168,6 @@ export default function CreatePostPage() {
 
     try {
       // 1. Fotoğrafları doğrudan Cloudinary'ye yükle.
-      // Fotoğraf verisi uygulamanın sunucusuna gönderilmez.
       setUploadProgress("Fotoğraflar buluta yükleniyor…");
 
       const images = await Promise.all(
@@ -178,16 +177,12 @@ export default function CreatePostPage() {
           return {
             name: file.name,
             contentType: file.type,
-
-            // Router'daki mevcut imageInput şemasını koruyoruz.
-            // Bu alanda artık Base64 değil, Cloudinary URL'si bulunur.
             contentBase64: cloudinaryUrl,
           };
         })
       );
 
-      // 2. Veritabanına fotoğraf dosyalarını değil,
-      // Cloudinary adreslerini içeren kayıtları gönder.
+      // 2. Veritabanına fotoğraf dosyalarını değil, Cloudinary adreslerini gönder.
       setUploadProgress("Gözlem kaydı oluşturuluyor…");
 
       const result = await create.mutateAsync({
@@ -221,6 +216,7 @@ export default function CreatePostPage() {
       (position) => {
         setLat(position.coords.latitude);
         setLng(position.coords.longitude);
+        fetchAddress(position.coords.latitude, position.coords.longitude); // GPS ile de adresi çek
         setError("");
       },
       () => {
@@ -233,6 +229,27 @@ export default function CreatePostPage() {
         timeout: 10000,
       }
     );
+  }
+
+  // YENİ: Enlem ve boylamdan adresi otomatik bulan fonksiyon
+  async function fetchAddress(latitude: number, longitude: number) {
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`
+      );
+      const data = await response.json();
+
+      if (data && data.address) {
+        // Gelen veriye göre Şehir ve İlçe/Köy bilgilerini ayıkla
+        const foundCity = data.address.city || data.address.province || data.address.state || "";
+        const foundLocality = data.address.town || data.address.village || data.address.suburb || data.address.county || "";
+
+        if (foundCity) setCity(foundCity);
+        if (foundLocality) setLocality(foundLocality);
+      }
+    } catch (error) {
+      console.error("Konum bilgisi otomatik alınamadı:", error);
+    }
   }
 
   return (
@@ -425,12 +442,14 @@ export default function CreatePostPage() {
             </Field>
           </div>
 
+          {/* YENİ: LocationPicker'da onChange tetiklendiğinde fetchAddress fonksiyonu da çalışacak */}
           <LocationPicker
             lat={lat}
             lng={lng}
             onChange={(latitude, longitude) => {
               setLat(latitude);
               setLng(longitude);
+              fetchAddress(latitude, longitude); 
             }}
           />
 
@@ -470,9 +489,28 @@ export default function CreatePostPage() {
             gönderide ortak yazar olarak görünür.
           </p>
 
+          {/* YENİ: Arama Çubuğu Inputu */}
+          <input
+            type="text"
+            className={`${inputClass} mb-3 w-full`}
+            placeholder="İsim, soyisim, kullanıcı adı veya mail ile ara..."
+            value={collaboratorSearch}
+            onChange={(e) => setCollaboratorSearch(e.target.value)}
+          />
+
           <div className="grid max-h-52 gap-2 overflow-y-auto rounded-xl border border-[#09352e]/15 p-3 sm:grid-cols-2">
             {users.data
-              ?.filter((person) => person.id !== user?.id)
+              ?.filter((person) => {
+                if (person.id === user?.id) return false;
+                
+                // YENİ: Arama filtresi
+                const term = collaboratorSearch.toLowerCase();
+                const fullName = `${person.firstName} ${person.lastName}`.toLowerCase();
+                const username = person.username.toLowerCase();
+                const email = (person as any).email?.toLowerCase() || "";
+                
+                return fullName.includes(term) || username.includes(term) || email.includes(term);
+              })
               .map((person) => (
                 <label
                   key={person.id}
