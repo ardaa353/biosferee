@@ -5,15 +5,17 @@ import { trpc } from "@/providers/trpc";
 import BioMap from "@/components/BioMap";
 import { Avatar, Empty, Loading, PageHeading, inputClass } from "@/components/BioUI";
 
-// Resim URL'sini güvenli bir şekilde çıkaran yardımcı fonksiyon
+// Akıllı URL Bulucu: "Truva Atı" ile name alanına gizlediğimiz Cloudinary linkini okur.
 function getImageUrl(image: any) {
   if (!image) return "";
-  if (image.contentBase64 && image.contentBase64.startsWith("http")) {
-    return image.contentBase64;
-  }
-  if (image.contentBase64) {
+  
+  if (image.name && image.name.startsWith("http")) return image.name;
+  
+  if (image.contentBase64 && image.contentBase64.startsWith("http")) return image.contentBase64;
+  if (image.contentBase64 && image.contentBase64.length > 100) { 
     return `data:${image.contentType || 'image/jpeg'};base64,${image.contentBase64}`;
   }
+  
   return image.url || "";
 }
 
