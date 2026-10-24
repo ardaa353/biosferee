@@ -58,11 +58,12 @@ export default function App() {
           <Route path="/sistematik" element={<TaxonomyPage />} />
           <Route path="/profil/:username" element={<ProfilePage />} />
           
-          {/* YENİ EKLENDİ: Ayarlar sayfası rotası */}
+          {/* Ayarlar sayfası rotası */}
           <Route path="/ayarlar" element={<SettingsPage />} />
           
-          {/* DÜZELTİLDİ: /yonetim yerine /admin yapıldı (ProfilePage'deki link ile eşleşmesi için) */}
+          {/* YENİ: Hem /admin hem de /yonetim adresleri aynı sayfayı (AdminPage) açacak */}
           <Route path="/admin" element={<AdminPage />} />
+          <Route path="/yonetim" element={<AdminPage />} />
         </Route>
         
         {/* Eşleşmeyen tüm adresler için 404 sayfası */}
