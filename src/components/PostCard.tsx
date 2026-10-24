@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
-import { CalendarDays, ChevronLeft, ChevronRight, CircleHelp, Flag, Heart, MapPin, Users, X } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, CircleHelp, Flag, Heart, MapPin, Users, X, Pencil, Trash2 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import type { BioPost } from "@/lib/types";
 import { cn, errorMessage, formatDate, seasonOf } from "@/lib/utils";
@@ -31,6 +31,11 @@ export default function PostCard({ post, compact = false }: { post: BioPost; com
     report.mutate({ postId: post.id, reason, details }); 
   }
 
+  // MOCK KULLANICI: Bu kısmı kendi auth sistemine göre güncellemelisin (örn: trpc ile oturum açan kullanıcıyı çekerek)
+  // Şimdilik test için "admin" rolü verdim, böylece her gönderide sil/düzenle butonları çıkacak.
+  const currentUser = { id: "test_user_id", role: "admin" }; 
+  const isOwnerOrAdmin = currentUser?.id === post.author.id || currentUser?.role === "admin";
+
   return (
     <article className="overflow-hidden border-b border-[#09352e]/15 pb-7" id={`gonderi-${post.id}`}>
       <header className="mb-4 flex items-center gap-3">
@@ -43,13 +48,39 @@ export default function PostCard({ post, compact = false }: { post: BioPost; com
           </Link>
           <p className="font-mono text-[11px] text-[#71807e]">@{post.author.username} · {post.author.reputation} itibar</p>
         </div>
-        <button 
-          onClick={() => setReporting(true)} 
-          className="grid h-11 w-11 cursor-pointer place-items-center rounded-full text-[#71807e] transition hover:bg-[#a63f36]/10 hover:text-[#8d302a]" 
-          aria-label="Gönderiyi raporla"
-        >
-          <Flag size={18} />
-        </button>
+        
+        {/* Butonlar Grubu: Raporla her zaman var, Sil/Düzenle yetkiye bağlı */}
+        <div className="flex items-center gap-1">
+          {isOwnerOrAdmin && (
+            <>
+              <button 
+                onClick={() => alert("Düzenleme sayfasına/moduna geçilecek...")}
+                className="grid h-11 w-11 cursor-pointer place-items-center rounded-full text-[#71807e] transition hover:bg-blue-500/10 hover:text-blue-600" 
+                aria-label="Gönderiyi düzenle"
+              >
+                <Pencil size={18} />
+              </button>
+              <button 
+                onClick={() => {
+                  if(window.confirm("Bu gönderiyi silmek istediğinize emin misiniz?")) {
+                    alert("Silme işlemi tRPC ile buraya bağlanacak (örn: deletePost.mutate)");
+                  }
+                }}
+                className="grid h-11 w-11 cursor-pointer place-items-center rounded-full text-[#71807e] transition hover:bg-red-500/10 hover:text-red-600" 
+                aria-label="Gönderiyi sil"
+              >
+                <Trash2 size={18} />
+              </button>
+            </>
+          )}
+          <button 
+            onClick={() => setReporting(true)} 
+            className="grid h-11 w-11 cursor-pointer place-items-center rounded-full text-[#71807e] transition hover:bg-[#a63f36]/10 hover:text-[#8d302a]" 
+            aria-label="Gönderiyi raporla"
+          >
+            <Flag size={18} />
+          </button>
+        </div>
       </header>
 
       {post.images.length > 0 && (
@@ -83,7 +114,6 @@ export default function PostCard({ post, compact = false }: { post: BioPost; com
               </>
             )}
           </div>
-          
         </div>
       )}
 
@@ -121,7 +151,14 @@ export default function PostCard({ post, compact = false }: { post: BioPost; com
         </button>
       </div>
 
-      {!compact && <p className="mt-4 whitespace-pre-wrap text-[15px] leading-7 text-[#354f43]">{post.description}</p>}
+      {/* Metin için gri arkaplan ve 3 satır (line-clamp-3) sınırlaması eklendi */}
+      {!compact && (
+        <div className="mt-4 rounded-xl border border-[#09352e]/5 bg-[#f4f7f5] p-4">
+          <p className="line-clamp-3 whitespace-pre-wrap text-[15px] leading-7 text-[#354f43]">
+            {post.description}
+          </p>
+        </div>
+      )}
       
       <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 font-mono text-[11px] text-[#5f7169]">
         <span className="inline-flex items-center gap-1.5"><MapPin size={14} />{post.locality}, {post.city}</span>
