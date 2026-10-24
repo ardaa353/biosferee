@@ -54,6 +54,9 @@ async function presignMap(keys: string[]): Promise<Record<string, string>> {
   return Object.fromEntries(result.urls.map((item) => [item.key, item.url]));
 }
 
+// ---------------------------------------------------------
+// FOTOĞRAF YÜKLEME VE GERÇEK KEY'İ ALMA FONKSİYONU
+// ---------------------------------------------------------
 async function resolveImages(files: z.infer<typeof imageInput>[], prefix: string) {
   const saved = [];
   for (const file of files) {
@@ -70,9 +73,16 @@ async function resolveImages(files: z.infer<typeof imageInput>[], prefix: string
     }
 
     const fileKey = `${prefix}/${Date.now()}-${file.name}`;
-    await storage.uploadFile({ fileContent: bytes, fileName: fileKey, contentType: file.contentType });
     
-    saved.push({ key: fileKey });
+    // ÖNEMLİ DEĞİŞİKLİK BURADA: storage.uploadFile'ın sonucunu (uploadResult) değişkene alıyoruz.
+    const uploadResult = await storage.uploadFile({ 
+      fileContent: bytes, 
+      fileName: fileKey, 
+      contentType: file.contentType 
+    });
+    
+    // Kendi yarattığımız fileKey'i DEĞİL, platformun sonuna rastgele kod eklediği GERÇEK KEY'i kaydediyoruz.
+    saved.push({ key: uploadResult.key });
   }
   return saved;
 }
@@ -127,6 +137,8 @@ async function listPosts(viewerId?: number) {
   const imageKeys = imageRows.map(i => i.fileKey).filter(k => !k.startsWith("http"));
   const avatarKeys = rows.map(r => r.author.avatarKey).filter((k): k is string => Boolean(k) && !k.startsWith("http"));
   const allKeysToPresign = [...new Set([...imageKeys, ...avatarKeys])];
+  
+  // Storage'a gidip gerçek linkleri (URL'leri) istiyoruz
   const presignedUrls = await presignMap(allKeysToPresign);
 
   const authorRep = new Map<number, number>();
@@ -147,6 +159,7 @@ async function listPosts(viewerId?: number) {
       .map((i) => ({
         id: i.id,
         key: i.fileKey,
+        // presignedUrls içinden eşleşeni bulursa o URL'yi veriyor, bulamazsa debug için raw string
         url: i.fileKey.startsWith("http") ? i.fileKey : (presignedUrls[i.fileKey] || i.fileKey),
       })),
     likeCount: likeRows.filter((l) => l.postId === post.id).length,
