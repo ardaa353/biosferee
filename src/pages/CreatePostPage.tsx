@@ -4,7 +4,7 @@ import { Crosshair, ImagePlus, X } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/lib/auth";
 import { emptyTaxonomy } from "@/lib/types";
-import { errorMessage } from "@/lib/utils"; // toImageInputs'i SİLDİK
+import { errorMessage } from "@/lib/utils";
 import { Field, PageHeading, buttonClass, inputClass, secondaryButton } from "@/components/BioUI";
 import { LocationPicker } from "@/components/BioMap";
 
@@ -14,13 +14,11 @@ export default function CreatePostPage() {
   const { user } = useAuth(); const navigate = useNavigate(); const [params] = useSearchParams();
   const [unknown, setUnknown] = useState(params.get("bilinmiyor") === "1"); const [tax, setTax] = useState(emptyTaxonomy); const [description, setDescription] = useState(""); const [city, setCity] = useState(""); const [locality, setLocality] = useState(""); const [lat, setLat] = useState(39.0); const [lng, setLng] = useState(35.0); 
   
-  // CLOUDINARY İÇİN DEĞİŞİKLİKLER: Artık File objesi değil, doğrudan URL tutuyoruz
   const [images, setImages] = useState<{name: string, url: string}[]>([]); 
   
   const [collaboratorIds, setCollaboratorIds] = useState<number[]>([]); const [error, setError] = useState("");
   const users = trpc.biosfere.users.list.useQuery(); const create = trpc.biosfere.posts.create.useMutation();
   
-  // CLOUDINARY WIDGET REF'İ
   const widgetRef = useRef<any>(null);
 
   useEffect(() => {
@@ -46,15 +44,25 @@ export default function CreatePostPage() {
     }
   }, []);
 
-  // SUBMIT (GÖNDERME) İŞLEMİ DEĞİŞTİ: Artık resim yükleme hatası vermeyecek
   async function submit(e: FormEvent) { 
     e.preventDefault(); 
     setError(""); 
     if (images.length === 0) return setError("Lütfen en az bir fotoğraf yükleyin.");
     try { 
       const result = await create.mutateAsync({ 
-        description, unknown, ...tax, city, locality, lat, lng, 
-        images, // Doğrudan Cloudinary'den gelen URL'leri veriyoruz 
+        description, 
+        unknown, 
+        ...tax, 
+        city, 
+        locality, 
+        lat, 
+        lng, 
+        // Zod şemasını ve sunucuyu kandırmak için Cloudinary linkini gerekli alanlara eşliyoruz
+        images: images.map(img => ({
+          name: img.name,
+          contentType: "image/jpeg",
+          contentBase64: img.url
+        })), 
         collaboratorIds 
       }); 
       navigate(`/gonderi/${result.id}`); 
@@ -70,14 +78,12 @@ export default function CreatePostPage() {
     {!unknown && <section><h2 className="mb-4 font-serif text-2xl">01 / Sistematik bilgiler</h2><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{taxLabels.map(([key, label]) => <Field key={key} label={`${label} *`}>{key === "kingdom" ? <select className={inputClass} value={tax[key]} onChange={(e) => setTax({ ...tax, [key]: e.target.value })}>{["Animalia", "Plantae", "Fungi", "Protista", "Bacteria", "Archaea"].map((k) => <option key={k}>{k}</option>)}</select> : <input className={inputClass} value={tax[key]} onChange={(e) => setTax({ ...tax, [key]: e.target.value })} required />}</Field>)}</div></section>}
     
     <section><h2 className="mb-4 font-serif text-2xl">{unknown ? "01" : "02"} / Fotoğraflar</h2>
-      {/* CLOUDINARY BUTONU */}
       <button type="button" onClick={() => widgetRef.current?.open()} className="flex min-h-36 w-full cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-[#007f24]/45 bg-[#85c093]/10 p-6 text-center transition hover:bg-[#85c093]/20">
         <ImagePlus className="mb-2 text-[#007f24]" />
         <strong className="text-sm">Fotoğraf yüklemek için tıklayın</strong>
         <span className="mt-1 text-xs text-[#5f7169]">En fazla 8 fotoğraf · her biri en fazla 12 MB (Cloudinary üzerinden)</span>
       </button>
       
-      {/* YÜKLENEN FOTOĞRAFLARIN ÖNİZLEMESİ */}
       {images.length > 0 && <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-4">
         {images.map((p, i) => <div key={p.url} className="relative aspect-square overflow-hidden rounded-lg"><img src={p.url} alt={p.name} className="h-full w-full object-cover" />
         <button type="button" onClick={() => setImages(images.filter((_, index) => index !== i))} className="absolute right-1 top-1 grid h-8 w-8 place-items-center rounded-full bg-[#f7f7f7]" aria-label="Fotoğrafı kaldır"><X size={15} /></button>
