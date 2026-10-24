@@ -1,18 +1,19 @@
-
 const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
 const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
 
 export async function uploadToCloudinary(file: File): Promise<string> {
   if (!cloudName || !uploadPreset) {
-    throw new Error("Cloudinary ayarları bulunamadı. .env dosyasını kontrol edin.");
+    throw new Error("Cloudinary ayarları bulunamadı. .env dosyasını kontrol et.");
   }
 
-  if (!file.type.match(/^image\/(jpeg|png|webp|gif)$/)) {
-    throw new Error("Yalnızca JPEG, PNG, WebP veya GIF yükleyebilirsiniz.");
+  const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+
+  if (!allowedTypes.includes(file.type)) {
+    throw new Error("JPEG, PNG, WebP veya GIF formatında fotoğraf seç.");
   }
 
   if (file.size > 12 * 1024 * 1024) {
-    throw new Error("Her fotoğraf en fazla 12 MB olabilir.");
+    throw new Error("Fotoğraf boyutu en fazla 12 MB olabilir.");
   }
 
   const formData = new FormData();
@@ -32,7 +33,7 @@ export async function uploadToCloudinary(file: File): Promise<string> {
 
   if (!response.ok || !result.secure_url) {
     throw new Error(
-      result.error?.message || "Fotoğraf Cloudinary'ye yüklenemedi."
+      result.error?.message ?? "Fotoğraf buluta yüklenemedi."
     );
   }
 
