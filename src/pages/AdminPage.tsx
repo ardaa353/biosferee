@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { Check, ShieldCheck, X } from "lucide-react";
+import { Check, ShieldCheck, X, Trash2 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/lib/auth";
 import { Avatar, Loading, PageHeading, buttonClass, inputClass, secondaryButton } from "@/components/BioUI";
@@ -8,12 +8,19 @@ import { Avatar, Loading, PageHeading, buttonClass, inputClass, secondaryButton 
 export default function AdminPage() {
   const { user } = useAuth(); 
   const [tab, setTab] = useState<"reports" | "suggestions" | "users">("reports"); 
+  const [userSearch, setUserSearch] = useState(""); // YENİ: Kullanıcı arama state'i
+
   const users = trpc.biosfere.users.list.useQuery(); 
   const overview = trpc.biosfere.moderation.overview.useQuery();
   
   const role = trpc.biosfere.users.setRole.useMutation({ onSuccess: () => users.refetch() }); 
   const resolve = trpc.biosfere.moderation.resolveReport.useMutation({ onSuccess: () => { overview.refetch(); } }); 
   const accept = trpc.biosfere.identification.accept.useMutation({ onSuccess: () => overview.refetch() });
+  
+  // YENİ: Kullanıcı silme işlemi için backend bağlantısı (Backend tarafını sonraki adımda yazacağız)
+  const deleteUser = trpc.biosfere.users.delete.useMutation({ 
+    onSuccess: () => users.refetch() 
+  });
   
   // Eğer kullanıcı yoksa veya normal kullanıcıysa sayfayı gösterme
   if (!user || user.role === "user") return null;
@@ -113,53 +120,95 @@ export default function AdminPage() {
         </section>
       )}
 
+      {/* YENİ: Kullanıcılar Sekmesi - Arama ve Scroll eklendi */}
       {tab === "users" && (
-        <section className="overflow-x-auto rounded-xl border border-[#09352e]/15 bg-white">
-          <table className="w-full min-w-[650px] border-collapse text-left">
-            <thead>
-              <tr className="border-b border-[#09352e]/20 bg-gray-50 font-mono text-[10px] uppercase tracking-wider text-[#71807e]">
-                <th className="py-3 px-4">Kullanıcı</th>
-                <th className="px-4">Biyografi</th>
-                <th className="px-4">İtibar</th>
-                <th className="px-4">Yetki</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.data?.map((u) => (
-                <tr key={u.id} className="border-b border-[#09352e]/10 hover:bg-gray-50/50 transition-colors">
-                  <td className="py-3 px-4">
-                    <div className="flex items-center gap-3">
-                      <Avatar user={u} size="sm" />
-                      <div>
-                        <p className="text-sm font-semibold text-[#09352e]">{u.firstName} {u.lastName}</p>
-                        <p className="font-mono text-[10px] text-[#71807e]">@{u.username}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="max-w-[200px] truncate px-4 text-xs text-[#50665d]">{u.bio || "-"}</td>
-                  <td className="font-mono text-xs px-4">{u.reputation}</td>
-                  <td className="px-4">
-                    <select 
-                      className={`${inputClass} max-w-36 text-sm`} 
-                      value={u.role} 
-                      disabled={user?.role !== "admin"} 
-                      onChange={(e) => role.mutate({ userId: u.id, role: e.target.value as "user" | "moderator" | "admin" })}
-                    >
-                      <option value="user">Kullanıcı</option>
-                      <option value="moderator">Moderatör</option>
-                      <option value="admin">Admin</option>
-                    </select>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {user?.role !== "admin" && (
-            <div className="p-4 bg-gray-50 border-t flex items-center gap-2 text-sm text-[#71807e]">
-              <ShieldCheck size={17} className="text-[#a96d15]" />
-              Yetki değişiklikleri yalnızca admin hesabına açıktır.
+        <section className="flex flex-col gap-4">
+          {/* YENİ: Arama Çubuğu */}
+          <input
+            type="text"
+            className={inputClass}
+            placeholder="Kullanıcı adı, isim, soyisim veya e-posta ile ara..."
+            value={userSearch}
+            onChange={(e) => setUserSearch(e.target.value)}
+          />
+
+          <div className="overflow-hidden rounded-xl border border-[#09352e]/15 bg-white">
+            {/* YENİ: max-h-[60vh] ve overflow-y-auto ile dikey scroll eklendi */}
+            <div className="max-h-[60vh] overflow-y-auto overflow-x-auto">
+              <table className="w-full min-w-[750px] border-collapse text-left relative">
+                <thead className="sticky top-0 z-10 bg-gray-50 shadow-sm">
+                  <tr className="border-b border-[#09352e]/20 font-mono text-[10px] uppercase tracking-wider text-[#71807e]">
+                    {/* YENİ: Sil butonu için sütun başlığı */}
+                    <th className="py-3 px-4 w-12 text-center">Sil</th>
+                    <th className="py-3 px-4">Kullanıcı</th>
+                    <th className="px-4">Biyografi</th>
+                    <th className="px-4">İtibar</th>
+                    <th className="px-4">Yetki</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.data
+                    ?.filter((u) => {
+                      // YENİ: Arama Filtreleme Mantığı
+                      const term = userSearch.toLowerCase();
+                      const fullName = `${u.firstName} ${u.lastName}`.toLowerCase();
+                      const username = u.username.toLowerCase();
+                      const email = (u as any).email?.toLowerCase() || "";
+                      return fullName.includes(term) || username.includes(term) || email.includes(term);
+                    })
+                    .map((u) => (
+                      <tr key={u.id} className="border-b border-[#09352e]/10 hover:bg-gray-50/50 transition-colors">
+                        {/* YENİ: Silme Butonu */}
+                        <td className="py-3 px-4 text-center">
+                          <button 
+                            className="text-[#a63f36] hover:text-[#8d302a] hover:bg-[#a63f36]/10 p-2 rounded-lg transition-colors disabled:opacity-50"
+                            title="Kullanıcıyı Sil"
+                            disabled={user?.role !== "admin" || u.id === user.id} // Kendisini silemez
+                            onClick={() => {
+                              if (window.confirm(`${u.firstName} ${u.lastName} adlı kullanıcıyı kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz!`)) {
+                                deleteUser.mutate({ userId: u.id });
+                              }
+                            }}
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-3">
+                            <Avatar user={u} size="sm" />
+                            <div>
+                              <p className="text-sm font-semibold text-[#09352e]">{u.firstName} {u.lastName}</p>
+                              <p className="font-mono text-[10px] text-[#71807e]">@{u.username}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="max-w-[200px] truncate px-4 text-xs text-[#50665d]">{u.bio || "-"}</td>
+                        <td className="font-mono text-xs px-4">{u.reputation}</td>
+                        <td className="px-4">
+                          <select 
+                            className={`${inputClass} max-w-36 text-sm`} 
+                            value={u.role} 
+                            disabled={user?.role !== "admin"} 
+                            onChange={(e) => role.mutate({ userId: u.id, role: e.target.value as "user" | "moderator" | "admin" })}
+                          >
+                            <option value="user">Kullanıcı</option>
+                            <option value="moderator">Moderatör</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
             </div>
-          )}
+            
+            {user?.role !== "admin" && (
+              <div className="p-4 bg-gray-50 border-t flex items-center gap-2 text-sm text-[#71807e]">
+                <ShieldCheck size={17} className="text-[#a96d15]" />
+                Yetki değişiklikleri yalnızca admin hesabına açıktır.
+              </div>
+            )}
+          </div>
         </section>
       )}
     </div>
