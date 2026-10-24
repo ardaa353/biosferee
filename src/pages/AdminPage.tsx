@@ -8,7 +8,7 @@ import { Avatar, Loading, PageHeading, buttonClass, inputClass, secondaryButton 
 export default function AdminPage() {
   const { user } = useAuth(); 
   const [tab, setTab] = useState<"reports" | "suggestions" | "users">("reports"); 
-  const [userSearch, setUserSearch] = useState(""); // YENİ: Kullanıcı arama state'i
+  const [userSearch, setUserSearch] = useState("");
 
   const users = trpc.biosfere.users.list.useQuery(); 
   const overview = trpc.biosfere.moderation.overview.useQuery();
@@ -17,12 +17,10 @@ export default function AdminPage() {
   const resolve = trpc.biosfere.moderation.resolveReport.useMutation({ onSuccess: () => { overview.refetch(); } }); 
   const accept = trpc.biosfere.identification.accept.useMutation({ onSuccess: () => overview.refetch() });
   
-  // YENİ: Kullanıcı silme işlemi için backend bağlantısı (Backend tarafını sonraki adımda yazacağız)
   const deleteUser = trpc.biosfere.users.delete.useMutation({ 
     onSuccess: () => users.refetch() 
   });
   
-  // Eğer kullanıcı yoksa veya normal kullanıcıysa sayfayı gösterme
   if (!user || user.role === "user") return null;
   
   return (
@@ -120,10 +118,8 @@ export default function AdminPage() {
         </section>
       )}
 
-      {/* YENİ: Kullanıcılar Sekmesi - Arama ve Scroll eklendi */}
       {tab === "users" && (
         <section className="flex flex-col gap-4">
-          {/* YENİ: Arama Çubuğu */}
           <input
             type="text"
             className={inputClass}
@@ -133,12 +129,10 @@ export default function AdminPage() {
           />
 
           <div className="overflow-hidden rounded-xl border border-[#09352e]/15 bg-white">
-            {/* YENİ: max-h-[60vh] ve overflow-y-auto ile dikey scroll eklendi */}
             <div className="max-h-[60vh] overflow-y-auto overflow-x-auto">
               <table className="w-full min-w-[750px] border-collapse text-left relative">
                 <thead className="sticky top-0 z-10 bg-gray-50 shadow-sm">
                   <tr className="border-b border-[#09352e]/20 font-mono text-[10px] uppercase tracking-wider text-[#71807e]">
-                    {/* YENİ: Sil butonu için sütun başlığı */}
                     <th className="py-3 px-4 w-12 text-center">Sil</th>
                     <th className="py-3 px-4">Kullanıcı</th>
                     <th className="px-4">Biyografi</th>
@@ -149,7 +143,6 @@ export default function AdminPage() {
                 <tbody>
                   {users.data
                     ?.filter((u) => {
-                      // YENİ: Arama Filtreleme Mantığı
                       const term = userSearch.toLowerCase();
                       const fullName = `${u.firstName} ${u.lastName}`.toLowerCase();
                       const username = u.username.toLowerCase();
@@ -158,12 +151,11 @@ export default function AdminPage() {
                     })
                     .map((u) => (
                       <tr key={u.id} className="border-b border-[#09352e]/10 hover:bg-gray-50/50 transition-colors">
-                        {/* YENİ: Silme Butonu */}
                         <td className="py-3 px-4 text-center">
                           <button 
                             className="text-[#a63f36] hover:text-[#8d302a] hover:bg-[#a63f36]/10 p-2 rounded-lg transition-colors disabled:opacity-50"
                             title="Kullanıcıyı Sil"
-                            disabled={user?.role !== "admin" || u.id === user.id} // Kendisini silemez
+                            disabled={user?.role !== "admin" || u.id === user.id}
                             onClick={() => {
                               if (window.confirm(`${u.firstName} ${u.lastName} adlı kullanıcıyı kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz!`)) {
                                 deleteUser.mutate({ userId: u.id });
@@ -174,8 +166,9 @@ export default function AdminPage() {
                           </button>
                         </td>
                         <td className="py-3 px-4">
+                          {/* DÜZELTİLDİ: "to" yolu /profil/${u.username} olarak değiştirildi */}
                           <Link 
-                            to={`/${u.username}`} 
+                            to={`/profil/${u.username}`} 
                             className="flex items-center gap-3 hover:bg-[#007f24]/5 p-2 -ml-2 rounded-lg transition-colors group"
                             title={`${u.firstName} profiline git`}
                           >
