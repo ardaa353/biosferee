@@ -7,12 +7,14 @@ let instance: ReturnType<typeof drizzle<typeof fullSchema>>;
 
 export function getDb() {
   if (!instance) {
-    // DİKKAT: Aşağıdaki adresi silip KENDİ AİVEN LİNKİNİ tırnak içinde yapıştır.
-    // Örnek: "mysql://avnadmin:sifre123@senin-sunucun.aivencloud.com:21312/defaultdb"
-    
-    const dbUrl = "mysql-35fb0864-ardakose35328-48cd.l.aivencloud.com"; 
+    const dbUrl = process.env.DATABASE_URL;
 
-    instance = drizzle(dbUrl, {
+    if (!dbUrl) {
+      console.error("🚨 KRİTİK HATA: DATABASE_URL değişkeni sunucuda bulunamadı!");
+      throw new Error("Veritabanı URL'si eksik.");
+    }
+
+    instance = drizzle(dbUrl as string, {
       mode: "planetscale",
       schema: fullSchema,
     });
