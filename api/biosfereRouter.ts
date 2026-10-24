@@ -315,6 +315,7 @@ export const biosfereRouter = createRouter({
         return { ok: true };
       }),
 
+    // YENİ EKLENDİ: ŞİFRE, MAİL VE TELEFON GÜNCELLEME
     updateSettings: authedQuery
       .input(z.object({ 
         email: z.string().trim().toLowerCase().email().max(320).optional(),
@@ -356,6 +357,7 @@ export const biosfereRouter = createRouter({
         return { ok: true };
       }),
 
+    // YENİ EKLENDİ: HESAP SİLME (CLOUD & DB HARD DELETE)
     delete: authedQuery
       .input(z.object({ userId: z.number() }))
       .mutation(async ({ ctx, input }) => {
