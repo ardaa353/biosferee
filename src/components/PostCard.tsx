@@ -41,21 +41,21 @@ export default function PostCard({
 
   const utils = trpc.useUtils();
 
-  // Gerçek oturum açmış kullanıcıyı getir.
+  // Gerçek oturum açmış kullanıcı.
   const { data: currentUser } = trpc.biosfere.auth.me.useQuery();
 
   // Beğeni işlemi.
   const like = trpc.biosfere.posts.toggleLike.useMutation({
-    onSuccess: () => {
-      utils.biosfere.posts.list.invalidate();
-      utils.biosfere.posts.get.invalidate({ id: post.id });
+    onSuccess: async () => {
+      await utils.biosfere.posts.list.invalidate();
+      await utils.biosfere.posts.get.invalidate({ id: post.id });
     },
     onError: (error) => {
       setMessage(errorMessage(error));
     },
   });
 
-  // Raporlama işlemi.
+  // Gönderi raporlama işlemi.
   const report = trpc.biosfere.posts.report.useMutation({
     onSuccess: () => {
       setReporting(false);
@@ -67,29 +67,23 @@ export default function PostCard({
     },
   });
 
-  // Gönderi silme işlemi.
+  // Gönderiyi backend ve Cloudinary üzerinden silme işlemi.
   const deletePost = trpc.biosfere.posts.delete.useMutation({
     onSuccess: async () => {
       setMessage("Gönderi başarıyla silindi.");
 
-      // Akış ve gönderi detaylarını yenile.
       await Promise.all([
         utils.biosfere.posts.list.invalidate(),
         utils.biosfere.posts.get.invalidate({ id: post.id }),
-        utils.biosfere.identification.forPost.invalidate({
-          postId: post.id,
-        }),
-        utils.biosfere.moderation.overview.invalidate(),
       ]);
     },
     onError: (error) => {
-      setMessage(`Gönderi silinemedi: ${errorMessage(error)}`);
+      setMessage("Gönderi silinemedi: " + errorMessage(error));
     },
   });
 
   function submitReport(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-
     setMessage("");
 
     report.mutate({
@@ -99,7 +93,7 @@ export default function PostCard({
     });
   }
 
-  // Kullanıcının kendi gönderisi veya admin olması gerekir.
+  // Gönderi sahibi veya admin ise yönetim butonlarını göster.
   const isOwnerOrAdmin =
     !!currentUser &&
     (String(currentUser.id) === String(post.author.id) ||
@@ -189,7 +183,7 @@ export default function PostCard({
               src={post.images[slide]?.url}
               alt={post.commonName ?? "Türü bilinmeyen canlı gözlemi"}
               className="h-full w-full object-cover"
-              onError={(e) =>
+              onError={() =>
                 console.error(
                   "Görsel yüklenemedi:",
                   post.images[slide]?.url
@@ -323,13 +317,14 @@ export default function PostCard({
       {message && (
         <p
           role="status"
-          className={`mt-3 text-sm ${
-            message.includes("silinemedi") ||
+          className={
+            "mt-3 text-sm " +
+            (message.includes("silinemedi") ||
             message.includes("hata") ||
             message.includes("başarısız")
               ? "text-[#8d302a]"
-              : "text-[#007f24]"
-          }`}
+              : "text-[#007f24]")
+          }
         >
           {message}
         </p>
