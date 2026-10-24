@@ -4,7 +4,8 @@ import { CalendarDays, ChevronLeft, ChevronRight, CircleHelp, Flag, Heart, MapPi
 import { trpc } from "@/providers/trpc";
 import type { BioPost } from "@/lib/types";
 import { cn, errorMessage, formatDate, seasonOf } from "@/lib/utils";
-import { Avatar, buttonClass, inputClass, secondaryButton } from "./BioUI";
+// DÜZELTİLEN SATIR BURASI:
+import { Avatar, buttonClass, inputClass, secondaryButton } from "@/components/BioUI";
 
 export default function PostCard({ post, compact = false }: { post: BioPost; compact?: boolean }) {
   const [slide, setSlide] = useState(0); 
