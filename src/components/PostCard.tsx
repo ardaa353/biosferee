@@ -28,21 +28,21 @@ export default function PostCard({ post, compact = false }: { post: BioPost; com
     report.mutate({ postId: post.id, reason, details }); 
   }
 
-  // Resim URL'sini güvenli bir şekilde çıkaran yardımcı fonksiyon
+  // Akıllı URL Bulucu: "Truva Atı" ile name alanına gizlediğimiz Cloudinary linkini okur.
   function getImageUrl(image: any) {
     if (!image) return "";
     
-    // Eğer image obje yapısında contentBase64 varsa ve bu bir http linki ise (Cloudinary vb.) doğrudan döndür
-    if (image.contentBase64 && image.contentBase64.startsWith("http")) {
-      return image.contentBase64;
+    // YENİ SİSTEM: URL'mizi name içine saklamıştık, oradaysa doğrudan onu kullan.
+    if (image.name && image.name.startsWith("http")) {
+      return image.name;
     }
     
-    // Eğer gerçekten bir base64 metniyse veya url alanı varsa
-    if (image.contentBase64) {
+    // ESKİ SİSTEM: Eğer veritabanında gerçekten eski tipte duran bir base64 veya url varsa onu kullan.
+    if (image.contentBase64 && image.contentBase64.startsWith("http")) return image.contentBase64;
+    if (image.contentBase64 && image.contentBase64.length > 100) { // 1x1 şeffaf değilse
       return `data:${image.contentType || 'image/jpeg'};base64,${image.contentBase64}`;
     }
     
-    // Fallback: Belki backend hala url diye bir alan döndürüyordur (eski veriler için)
     return image.url || "";
   }
 
