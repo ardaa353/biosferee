@@ -17,22 +17,29 @@ const taxonomyFields = {
   species: z.string().trim().max(200).optional(),
   commonName: z.string().trim().max(200).optional(),
 };
+
 const requiredTaxonomy = {
-  kingdom: z.string().trim().min(2).max(100), phylum: z.string().trim().min(2).max(150),
-  className: z.string().trim().min(2).max(150), orderName: z.string().trim().min(2).max(150),
-  family: z.string().trim().min(2).max(150), genus: z.string().trim().min(2).max(150),
-  species: z.string().trim().min(2).max(200), commonName: z.string().trim().min(2).max(200),
+  kingdom: z.string().trim().min(2).max(100),
+  phylum: z.string().trim().min(2).max(150),
+  className: z.string().trim().min(2).max(150),
+  orderName: z.string().trim().min(2).max(150),
+  family: z.string().trim().min(2).max(150),
+  genus: z.string().trim().min(2).max(150),
+  species: z.string().trim().min(2).max(200),
+  commonName: z.string().trim().min(2).max(200),
 };
+
 const imageInput = z.object({
   name: z.string().min(1).max(240),
   contentType: z.string().regex(/^image\/(jpeg|png|webp|gif)$/),
-  contentBase64: z.string().max(16_000_000),
+  contentBase64: z.string().max(16_000_000), // Base64 limiti (16MB)
 });
 
 function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
   return `${salt}:${scryptSync(password, salt, 64).toString("hex")}`;
 }
+
 function verifyPassword(password: string, stored: string) {
   const [salt, key] = stored.split(":");
   if (!salt || !key) return false;
@@ -40,33 +47,67 @@ function verifyPassword(password: string, stored: string) {
   const actual = Buffer.from(key, "hex");
   return candidate.length === actual.length && timingSafeEqual(candidate, actual);
 }
+
+// Bu fonksiyon dış siteden (Storage) resimlerin asıl linklerini (URL) getiriyor.
 async function presignMap(keys: string[]): Promise<Record<string, string>> {
   if (!keys.length) return {};
   const result = await storage.getPresignedUrls({ keys: [...new Set(keys)] });
   return Object.fromEntries(result.urls.map((item) => [item.key, item.url]));
 }
-function safeUser(user: typeof users.$inferSelect) {
-  return { id: user.id, firstName: user.firstName, lastName: user.lastName, username: user.username,
-    bio: user.bio, role: user.role, avatarKey: user.avatarKey, createdAt: user.createdAt };
+
+// FOTOĞRAFI DIŞ SİTEYE (STORAGE) YÜKLEYEN FONKSİYON
+async function resolveImages(files: z.infer<typeof imageInput>[], prefix: string) {
+  const saved = [];
+  
+  for (const file of files) {
+    // 1. Gelen Base64 kodunu dosyaya dönüştür
+    const bytes = Uint8Array.from(Buffer.from(file.contentBase64, "base64"));
+    if (bytes.byteLength > 12 * 1024 * 1024) throw new TRPCError({ code: "BAD_REQUEST", message: "Her fotoğraf en fazla 12 MB olabilir." });
+    
+    // 2. Dış sitede kullanılacak benzersiz bir isim (key) belirle
+    const fileKey = `${prefix}/${Date.now()}-${file.name}`;
+    
+    // 3. Dosyayı veritabanına DEĞİL, dış siteye (storage) yükle!
+    await storage.uploadFile({ fileContent: bytes, fileName: fileKey, contentType: file.contentType });
+    
+    // 4. Veritabanına sadece bu kısa "fileKey" ismini kaydedebilmek için geri döndür
+    saved.push({ key: fileKey });
+  }
+  return saved;
 }
+
+function safeUser(user: typeof users.$inferSelect) {
+  return {
+    id: user.id, firstName: user.firstName, lastName: user.lastName, username: user.username,
+    bio: user.bio, role: user.role, avatarKey: user.avatarKey, createdAt: user.createdAt,
+  };
+}
+
 async function createSession(userId: number) {
   const token = randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
   await getDb().insert(sessions).values({ userId, token, expiresAt });
   return token;
 }
+
 async function enrichUsers(rows: (typeof users.$inferSelect)[]) {
   const keys = rows.map((u) => u.avatarKey).filter((k): k is string => Boolean(k));
   const urls = await presignMap(keys);
   const allLikes = await getDb().select({ postId: likes.postId }).from(likes);
   const allPosts = await getDb().select({ id: posts.id, authorId: posts.authorId }).from(posts);
-  return rows.map((u) => ({ ...safeUser(u), avatarUrl: u.avatarKey ? urls[u.avatarKey] : undefined,
-    reputation: allLikes.filter((l) => allPosts.find((p) => p.id === l.postId)?.authorId === u.id).length }));
+  return rows.map((u) => ({
+    ...safeUser(u), 
+    avatarUrl: u.avatarKey ? urls[u.avatarKey] : undefined,
+    reputation: allLikes.filter((l) => allPosts.find((p) => p.id === l.postId)?.authorId === u.id).length 
+  }));
 }
+
 async function listPosts(viewerId?: number) {
   const db = getDb();
   const rows = await db.select({ post: posts, author: users }).from(posts).innerJoin(users, eq(users.id, posts.authorId)).orderBy(desc(posts.createdAt));
+  
   if (!rows.length) return [];
+  
   const ids = rows.map((r) => r.post.id);
   const [imageRows, likeRows, collabRows] = await Promise.all([
     db.select().from(postImages).where(inArray(postImages.postId, ids)),
@@ -74,22 +115,16 @@ async function listPosts(viewerId?: number) {
     db.select({ collab: collaborators, user: users }).from(collaborators).innerJoin(users, eq(users.id, collaborators.userId)).where(inArray(collaborators.postId, ids)),
   ]);
   
-  // Cloudinary linkleri doğrudan http ile başladığı için presignMap'e gerek duymaz, doğrudan URL olarak döndürülür.
-  const avatarKeys = rows.map((r) => r.author.avatarKey).filter((k): k is string => Boolean(k));
-  const avatarUrls = await presignMap(avatarKeys);
-
+  const keys = [...imageRows.map((i) => i.fileKey), ...rows.map((r) => r.author.avatarKey).filter((k): k is string => Boolean(k))];
+  const urls = await presignMap(keys);
+  
   const authorRep = new Map<number, number>();
   for (const row of rows) authorRep.set(row.author.id, (authorRep.get(row.author.id) ?? 0) + likeRows.filter((l) => l.postId === row.post.id).length);
   
   return rows.map(({ post, author }) => ({
     ...post,
-    author: { ...safeUser(author), avatarUrl: author.avatarKey ? avatarUrls[author.avatarKey] : undefined, reputation: authorRep.get(author.id) ?? 0 },
-    images: imageRows.filter((i) => i.postId === post.id).sort((a, b) => a.sortOrder - b.sortOrder).map((i) => ({ 
-      id: i.id, 
-      key: i.fileKey, 
-      // Eğer fileKey doğrudan http (Cloudinary) linkiyse onu ver, değilse presign URL kullan
-      url: i.fileKey.startsWith("http") ? i.fileKey : (avatarUrls[i.fileKey] || i.fileKey) 
-    })),
+    author: { ...safeUser(author), avatarUrl: author.avatarKey ? urls[author.avatarKey] : undefined, reputation: authorRep.get(author.id) ?? 0 },
+    images: imageRows.filter((i) => i.postId === post.id).sort((a, b) => a.sortOrder - b.sortOrder).map((i) => ({ id: i.id, key: i.fileKey, url: urls[i.fileKey] })),
     likeCount: likeRows.filter((l) => l.postId === post.id).length,
     liked: viewerId ? likeRows.some((l) => l.postId === post.id && l.userId === viewerId) : false,
     collaborators: collabRows.filter((c) => c.collab.postId === post.id).map((c) => safeUser(c.user)),
@@ -109,6 +144,7 @@ export const biosfereRouter = createRouter({
       const existing = await db.select({ id: users.id }).from(users).where(eq(users.username, input.username)).limit(1);
       const existingMail = await db.select({ id: users.id }).from(users).where(eq(users.email, input.email)).limit(1);
       if (existing.length || existingMail.length) throw new TRPCError({ code: "CONFLICT", message: "Bu kullanıcı adı veya e-posta zaten kullanılıyor." });
+      
       const [firstUser] = await db.select({ id: users.id }).from(users).limit(1);
       const role = firstUser ? "user" : "admin";
       const [{ id }] = await db.insert(users).values({ ...input, passwordHash: hashPassword(input.password), role }).$returningId();
@@ -129,13 +165,15 @@ export const biosfereRouter = createRouter({
       return { ok: true };
     }),
   }),
+  
   users: createRouter({
     list: authedQuery.query(async () => enrichUsers(await getDb().select().from(users).orderBy(users.username))),
     updateProfile: authedQuery.input(z.object({ bio: z.string().trim().min(3).max(1000), avatar: imageInput.optional() })).mutation(async ({ ctx, input }) => {
       let avatarKey = ctx.user.avatarKey;
       if (input.avatar) {
-        // Profil fotoğrafı için doğrudan Cloudinary linkini kullanıyoruz
-        avatarKey = input.avatar.contentBase64;
+        // Yeni profil fotoğrafı gelirse, onu da storage'a yüklüyoruz.
+        const uploaded = await resolveImages([input.avatar], `users/${ctx.user.username}/profile`);
+        avatarKey = uploaded[0].key;
       }
       await getDb().update(users).set({ bio: input.bio, avatarKey }).where(eq(users.id, ctx.user.id));
       return { ok: true };
@@ -146,6 +184,7 @@ export const biosfereRouter = createRouter({
       await getDb().update(users).set({ role: input.role }).where(eq(users.id, input.userId)); return { ok: true };
     }),
   }),
+  
   posts: createRouter({
     list: publicQuery.query(async ({ ctx }) => {
       const result = await listPosts(ctx.user?.id);
@@ -167,28 +206,27 @@ export const biosfereRouter = createRouter({
       }
     })).mutation(async ({ ctx, input }) => {
       const db = getDb();
+      
+      // ÖNEMLİ DEĞİŞİKLİK: Fotoğraflar önce bulut depolamaya (siteye) gönderiliyor
+      const savedImages = await resolveImages(input.images, `users/${ctx.user.username}/posts`);
+      
       const tax = input.unknown ? Object.fromEntries(Object.keys(taxonomyFields).map((k) => [k, null])) : Object.fromEntries(Object.keys(taxonomyFields).map((k) => [k, input[k as keyof typeof input]]));
       
       const [{ id }] = await db.insert(posts).values({ 
-        authorId: ctx.user.id, 
-        description: input.description,
-        status: input.unknown ? "unknown" : "verified", 
-        ...tax, 
-        city: input.city, 
-        locality: input.locality, 
-        lat: input.lat, 
-        lng: input.lng 
+        authorId: ctx.user.id, description: input.description, status: input.unknown ? "unknown" : "verified", 
+        ...tax, city: input.city, locality: input.locality, lat: input.lat, lng: input.lng 
       }).$returningId();
-
-      // MÜKEMMEL ÇÖZÜM: Frontend'den gelen Cloudinary URL'sini doğrudan fileKey olarak veritabanına kaydediyoruz!
-      await db.insert(postImages).values(input.images.map((img, index) => ({ 
+      
+      // Veritabanına devasa Base64'ü DEĞİL, dış sitenin döndürdüğü "fileKey" kaydediliyor
+      await db.insert(postImages).values(savedImages.map((file, index) => ({ 
         postId: id, 
-        fileKey: img.contentBase64, // Cloudinary URL'si burada saklanıyor
+        fileKey: file.key, 
         sortOrder: index 
       })));
-
+      
       const collaboratorIds = [...new Set(input.collaboratorIds)].filter((uid) => uid !== ctx.user.id);
       if (collaboratorIds.length) await db.insert(collaborators).values(collaboratorIds.map((userId) => ({ postId: id, userId })));
+      
       return { id };
     }),
     toggleLike: authedQuery.input(z.object({ postId: z.number() })).mutation(async ({ ctx, input }) => {
@@ -201,6 +239,7 @@ export const biosfereRouter = createRouter({
       await getDb().insert(reports).values({ ...input, reporterId: ctx.user.id }); return { ok: true };
     }),
   }),
+  
   identification: createRouter({
     forPost: authedQuery.input(z.object({ postId: z.number() })).query(async ({ input }) => {
       const db = getDb(); const rows = await db.select({ suggestion: suggestions, user: users }).from(suggestions).innerJoin(users, eq(users.id, suggestions.userId)).where(eq(suggestions.postId, input.postId)).orderBy(desc(suggestions.createdAt));
@@ -223,6 +262,7 @@ export const biosfereRouter = createRouter({
       }); return { ok: true };
     }),
   }),
+  
   moderation: createRouter({
     overview: adminQuery.query(async () => {
       const db = getDb();
