@@ -73,28 +73,27 @@ async function listPosts(viewerId?: number) {
     db.select().from(likes).where(inArray(likes.postId, ids)),
     db.select({ collab: collaborators, user: users }).from(collaborators).innerJoin(users, eq(users.id, collaborators.userId)).where(inArray(collaborators.postId, ids)),
   ]);
-  const keys = [...imageRows.map((i) => i.fileKey), ...rows.map((r) => r.author.avatarKey).filter((k): k is string => Boolean(k))];
-  const urls = await presignMap(keys);
+  
+  // Cloudinary linkleri doğrudan http ile başladığı için presignMap'e gerek duymaz, doğrudan URL olarak döndürülür.
+  const avatarKeys = rows.map((r) => r.author.avatarKey).filter((k): k is string => Boolean(k));
+  const avatarUrls = await presignMap(avatarKeys);
+
   const authorRep = new Map<number, number>();
   for (const row of rows) authorRep.set(row.author.id, (authorRep.get(row.author.id) ?? 0) + likeRows.filter((l) => l.postId === row.post.id).length);
+  
   return rows.map(({ post, author }) => ({
     ...post,
-    author: { ...safeUser(author), avatarUrl: author.avatarKey ? urls[author.avatarKey] : undefined, reputation: authorRep.get(author.id) ?? 0 },
-    images: imageRows.filter((i) => i.postId === post.id).sort((a, b) => a.sortOrder - b.sortOrder).map((i) => ({ id: i.id, key: i.fileKey, url: urls[i.fileKey] })),
+    author: { ...safeUser(author), avatarUrl: author.avatarKey ? avatarUrls[author.avatarKey] : undefined, reputation: authorRep.get(author.id) ?? 0 },
+    images: imageRows.filter((i) => i.postId === post.id).sort((a, b) => a.sortOrder - b.sortOrder).map((i) => ({ 
+      id: i.id, 
+      key: i.fileKey, 
+      // Eğer fileKey doğrudan http (Cloudinary) linkiyse onu ver, değilse presign URL kullan
+      url: i.fileKey.startsWith("http") ? i.fileKey : (avatarUrls[i.fileKey] || i.fileKey) 
+    })),
     likeCount: likeRows.filter((l) => l.postId === post.id).length,
     liked: viewerId ? likeRows.some((l) => l.postId === post.id && l.userId === viewerId) : false,
     collaborators: collabRows.filter((c) => c.collab.postId === post.id).map((c) => safeUser(c.user)),
   }));
-}
-async function resolveImages(files: z.infer<typeof imageInput>[], prefix: string) {
-  const saved = [];
-  for (const file of files) {
-    const bytes = Uint8Array.from(Buffer.from(file.contentBase64, "base64"));
-    if (bytes.byteLength > 12 * 1024 * 1024) throw new TRPCError({ code: "BAD_REQUEST", message: "Her fotoğraf en fazla 12 MB olabilir." });
-    const result = await storage.uploadFile({ fileContent: bytes, fileName: `${prefix}/${file.name}`, contentType: file.contentType });
-    saved.push(result);
-  }
-  return saved;
 }
 
 export const biosfereRouter = createRouter({
@@ -134,7 +133,10 @@ export const biosfereRouter = createRouter({
     list: authedQuery.query(async () => enrichUsers(await getDb().select().from(users).orderBy(users.username))),
     updateProfile: authedQuery.input(z.object({ bio: z.string().trim().min(3).max(1000), avatar: imageInput.optional() })).mutation(async ({ ctx, input }) => {
       let avatarKey = ctx.user.avatarKey;
-      if (input.avatar) avatarKey = (await resolveImages([input.avatar], `users/${ctx.user.username}/profile`))[0].key;
+      if (input.avatar) {
+        // Profil fotoğrafı için doğrudan Cloudinary linkini kullanıyoruz
+        avatarKey = input.avatar.contentBase64;
+      }
       await getDb().update(users).set({ bio: input.bio, avatarKey }).where(eq(users.id, ctx.user.id));
       return { ok: true };
     }),
@@ -164,12 +166,27 @@ export const biosfereRouter = createRouter({
         if (!parsed.success) ctx.addIssue({ code: "custom", path: [key], message: "Türü bilinen gönderilerde tüm taksonomi alanları zorunludur." });
       }
     })).mutation(async ({ ctx, input }) => {
-      const saved = await resolveImages(input.images, `users/${ctx.user.username}/posts`);
       const db = getDb();
       const tax = input.unknown ? Object.fromEntries(Object.keys(taxonomyFields).map((k) => [k, null])) : Object.fromEntries(Object.keys(taxonomyFields).map((k) => [k, input[k as keyof typeof input]]));
-      const [{ id }] = await db.insert(posts).values({ authorId: ctx.user.id, description: input.description,
-        status: input.unknown ? "unknown" : "verified", ...tax, city: input.city, locality: input.locality, lat: input.lat, lng: input.lng }).$returningId();
-      await db.insert(postImages).values(saved.map((file, index) => ({ postId: id, fileKey: file.key, sortOrder: index })));
+      
+      const [{ id }] = await db.insert(posts).values({ 
+        authorId: ctx.user.id, 
+        description: input.description,
+        status: input.unknown ? "unknown" : "verified", 
+        ...tax, 
+        city: input.city, 
+        locality: input.locality, 
+        lat: input.lat, 
+        lng: input.lng 
+      }).$returningId();
+
+      // MÜKEMMEL ÇÖZÜM: Frontend'den gelen Cloudinary URL'sini doğrudan fileKey olarak veritabanına kaydediyoruz!
+      await db.insert(postImages).values(input.images.map((img, index) => ({ 
+        postId: id, 
+        fileKey: img.contentBase64, // Cloudinary URL'si burada saklanıyor
+        sortOrder: index 
+      })));
+
       const collaboratorIds = [...new Set(input.collaboratorIds)].filter((uid) => uid !== ctx.user.id);
       if (collaboratorIds.length) await db.insert(collaborators).values(collaboratorIds.map((userId) => ({ postId: id, userId })));
       return { id };
