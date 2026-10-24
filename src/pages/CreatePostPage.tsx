@@ -1,199 +1,259 @@
-import { useState, type FormEvent } from "react";
-import { Link } from "react-router";
-import { CalendarDays, ChevronLeft, ChevronRight, CircleHelp, Flag, Heart, MapPin, Users, X } from "lucide-react";
+import { useMemo, useState, type FormEvent } from "react";
+import { useNavigate, useSearchParams } from "react-router";
+import { Crosshair, ImagePlus, X } from "lucide-react";
 import { trpc } from "@/providers/trpc";
-import type { BioPost } from "@/lib/types";
-import { cn, errorMessage, formatDate, seasonOf } from "@/lib/utils";
-import { Avatar, buttonClass, inputClass, secondaryButton } from "./BioUI";
+import { useAuth } from "@/lib/auth";
+import { emptyTaxonomy } from "@/lib/types";
+import { errorMessage, toImageInputs } from "@/lib/utils";
+import { Field, PageHeading, buttonClass, inputClass, secondaryButton } from "@/components/BioUI";
+import { LocationPicker } from "@/components/BioMap";
 
-export default function PostCard({ post, compact = false }: { post: BioPost; compact?: boolean }) {
-  const [slide, setSlide] = useState(0);
-  const [reporting, setReporting] = useState(false);
-  const [details, setDetails] = useState("");
-  const [reason, setReason] = useState<"misleading" | "wrong_species" | "inappropriate" | "other">("wrong_species");
-  const [message, setMessage] = useState("");
+const taxLabels: [keyof typeof emptyTaxonomy, string][] = [
+  ["kingdom", "Alem"],
+  ["phylum", "Şube"],
+  ["className", "Sınıf"],
+  ["orderName", "Takım"],
+  ["family", "Familya"],
+  ["genus", "Cins"],
+  ["species", "Bilimsel tür adı"],
+  ["commonName", "Türkçe yaygın ad"]
+];
 
-  const utils = trpc.useUtils();
-  const like = trpc.biosfere.posts.toggleLike.useMutation({
-    onSuccess: () => utils.biosfere.posts.list.invalidate()
-  });
+export default function CreatePostPage() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
   
-  const report = trpc.biosfere.posts.report.useMutation({ 
-    onSuccess: () => { 
-      setReporting(false); 
-      setDetails(""); 
-      setMessage("Raporunuz moderasyon ekibine iletildi."); 
-    } 
-  });
+  const [unknown, setUnknown] = useState(params.get("bilinmiyor") === "1");
+  const [tax, setTax] = useState(emptyTaxonomy);
+  const [description, setDescription] = useState("");
+  const [city, setCity] = useState("");
+  const [locality, setLocality] = useState("");
+  const [lat, setLat] = useState(39.0);
+  const [lng, setLng] = useState(35.0);
+  const [files, setFiles] = useState<File[]>([]);
+  const [collaboratorIds, setCollaboratorIds] = useState<number[]>([]);
+  const [error, setError] = useState("");
 
-  function submitReport(e: FormEvent) { 
-    e.preventDefault(); 
-    report.mutate({ postId: post.id, reason, details }); 
+  const users = trpc.biosfere.users.list.useQuery();
+  const create = trpc.biosfere.posts.create.useMutation();
+
+  const previews = useMemo(
+    () => files.map((f) => ({ name: f.name, url: URL.createObjectURL(f) })),
+    [files]
+  );
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setError("");
+    
+    try {
+      const images = await toImageInputs(files);
+      const result = await create.mutateAsync({
+        description,
+        unknown,
+        ...tax,
+        city,
+        locality,
+        lat,
+        lng,
+        images,
+        collaboratorIds
+      });
+      navigate(`/gonderi/${result.id}`);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  function gps() {
+    if (!navigator.geolocation) {
+      return setError("Tarayıcınız konum özelliğini desteklemiyor.");
+    }
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        setLat(p.coords.latitude);
+        setLng(p.coords.longitude);
+      },
+      () => setError("Konum izni alınamadı. Haritadan nokta seçebilirsiniz.")
+    );
   }
 
   return (
-    <article className="overflow-hidden border-b border-[#09352e]/15 pb-7" id={`gonderi-${post.id}`}>
-      {/* Kart Başlığı (Kullanıcı Bilgileri) */}
-      <header className="mb-4 flex items-center gap-3">
-        <Link to={`/profil/${post.author.username}`}>
-          <Avatar user={post.author} />
-        </Link>
-        <div className="min-w-0 flex-1">
-          <Link to={`/profil/${post.author.username}`} className="text-sm font-bold hover:underline">
-            {post.author.firstName} {post.author.lastName}
-          </Link>
-          <p className="font-mono text-[11px] text-[#71807e]">@{post.author.username} · {post.author.reputation} itibar</p>
-        </div>
-        <button 
-          onClick={() => setReporting(true)} 
-          className="grid h-11 w-11 cursor-pointer place-items-center rounded-full text-[#71807e] transition hover:bg-[#a63f36]/10 hover:text-[#8d302a]" 
-          aria-label="Gönderiyi raporla"
-        >
-          <Flag size={18} />
-        </button>
-      </header>
-
-      {/* Fotoğraf Carousel */}
-      {post.images.length > 0 && (
-        <div className="mb-5">
-          <div className="group relative aspect-[4/3] overflow-hidden rounded-xl bg-[#dfe7df] sm:aspect-[16/10]">
-            <img 
-              src={post.images[slide]?.url} 
-              alt={post.commonName ?? "Türü bilinmeyen canlı gözlemi"} 
-              className="h-full w-full object-cover" 
-              onError={(e) => console.error("Görsel yüklenemedi: ", post.images[slide]?.url)}
+    <div className="mx-auto max-w-4xl">
+      <PageHeading 
+        eyebrow="Yeni saha kaydı" 
+        title="Gözlem paylaş" 
+        description="Fotoğrafları, konumu ve biyolojik notları ekleyin. Kayıt tarihi ve mevsimi sistem tarafından otomatik eklenir." 
+      />
+      
+      <form onSubmit={submit} className="space-y-9">
+        <section>
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#a96d15]/30 bg-[#f2e5c9]/60 p-4">
+            <input 
+              type="checkbox" 
+              checked={unknown} 
+              onChange={(e) => setUnknown(e.target.checked)} 
+              className="mt-1 h-5 w-5 accent-[#007f24]" 
             />
-            {post.images.length > 1 && (
-              <>
-                <button 
-                  onClick={() => setSlide((slide - 1 + post.images.length) % post.images.length)} 
-                  className="absolute left-3 top-1/2 grid h-11 w-11 -translate-y-1/2 cursor-pointer place-items-center rounded-full bg-[#f7f7f7]/90 opacity-100 shadow sm:opacity-0 sm:group-hover:opacity-100" 
-                  aria-label="Önceki fotoğraf"
-                >
-                  <ChevronLeft />
-                </button>
-                <button 
-                  onClick={() => setSlide((slide + 1) % post.images.length)} 
-                  className="absolute right-3 top-1/2 grid h-11 w-11 -translate-y-1/2 cursor-pointer place-items-center rounded-full bg-[#f7f7f7]/90 opacity-100 shadow sm:opacity-0 sm:group-hover:opacity-100" 
-                  aria-label="Sonraki fotoğraf"
-                >
-                  <ChevronRight />
-                </button>
-                <span className="absolute bottom-3 right-3 rounded-full bg-[#09352e]/85 px-2.5 py-1 font-mono text-[11px] text-white">
-                  {slide + 1}/{post.images.length}
-                </span>
-              </>
-            )}
+            <span>
+              <strong className="text-sm">Türü bilinmiyor etiketiyle paylaş</strong>
+              <span className="mt-1 block text-sm leading-6 text-[#5f593f]">
+                Gönderi bilinmeyenler bölümüne eklenir; kullanıcılar Alem → Tür önerisi gönderebilir.
+              </span>
+            </span>
+          </label>
+        </section>
+
+        {!unknown && (
+          <section>
+            <h2 className="mb-4 font-serif text-2xl">01 / Sistematik bilgiler</h2>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {taxLabels.map(([key, label]) => (
+                <Field key={key} label={`${label} *`}>
+                  {key === "kingdom" ? (
+                    <select 
+                      className={inputClass} 
+                      value={tax[key]} 
+                      onChange={(e) => setTax({ ...tax, [key]: e.target.value })}
+                    >
+                      {["Animalia", "Plantae", "Fungi", "Protista", "Bacteria", "Archaea"].map((k) => (
+                        <option key={k}>{k}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input 
+                      className={inputClass} 
+                      value={tax[key]} 
+                      onChange={(e) => setTax({ ...tax, [key]: e.target.value })} 
+                      required 
+                    />
+                  )}
+                </Field>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section>
+          <h2 className="mb-4 font-serif text-2xl">{unknown ? "01" : "02"} / Fotoğraflar</h2>
+          <label className="flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-[#007f24]/45 bg-[#85c093]/10 p-6 text-center transition hover:bg-[#85c093]/20">
+            <ImagePlus className="mb-2 text-[#007f24]" />
+            <strong className="text-sm">Fotoğraf seç</strong>
+            <span className="mt-1 text-xs text-[#5f7169]">En fazla 8 fotoğraf · her biri en fazla 12 MB</span>
+            <input 
+              type="file" 
+              accept="image/jpeg,image/png,image/webp,image/gif" 
+              multiple 
+              className="sr-only" 
+              onChange={(e) => setFiles(Array.from(e.target.files ?? []).slice(0, 8))} 
+              required={files.length === 0} 
+            />
+          </label>
+          
+          {previews.length > 0 && (
+            <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-4">
+              {previews.map((p, i) => (
+                <div key={p.url} className="relative aspect-square overflow-hidden rounded-lg">
+                  <img src={p.url} alt={p.name} className="h-full w-full object-cover" />
+                  <button 
+                    type="button" 
+                    onClick={() => setFiles(files.filter((_, index) => index !== i))} 
+                    className="absolute right-1 top-1 grid h-8 w-8 place-items-center rounded-full bg-[#f7f7f7]" 
+                    aria-label="Fotoğrafı kaldır"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section>
+          <div className="mb-4 flex items-end justify-between">
+            <h2 className="font-serif text-2xl">{unknown ? "02" : "03"} / Konum</h2>
+            <button 
+              type="button" 
+              onClick={gps} 
+              className="flex min-h-11 items-center gap-2 text-xs font-semibold text-[#007f24]"
+            >
+              <Crosshair size={16} />Mevcut konumum
+            </button>
           </div>
           
-          {/* HATA AYIKLAMA (DEBUG) LOG'U - SORUN ÇÖZÜLÜNCE BU KISMI SİLEBİLİRSİNİZ */}
-          {post.images[slide]?.url && (
-            <div className="mt-2 rounded bg-red-50 p-2 font-mono text-[10px] text-red-600 break-all border border-red-200">
-              <strong>URL LOG:</strong> {post.images[slide].url}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Gönderi Detayları */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="mb-1 flex items-center gap-2">
-            {post.status === "unknown" ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-[#a96d15]/30 bg-[#f2e5c9] px-2.5 py-1 font-mono text-[10px] font-semibold uppercase text-[#78500f]">
-                <CircleHelp size={13} /> Türü bilinmiyor
-              </span>
-            ) : (
-              <span className="font-mono text-[10px] font-semibold uppercase tracking-[.14em] text-[#007f24]">
-                {post.kingdom} / doğrulanmış kayıt
-              </span>
-            )}
+          <div className="mb-4 grid gap-4 sm:grid-cols-2">
+            <Field label="Şehir *">
+              <input className={inputClass} value={city} onChange={(e) => setCity(e.target.value)} placeholder="Örn. Giresun" required />
+            </Field>
+            <Field label="Lokalite / habitat *">
+              <input className={inputClass} value={locality} onChange={(e) => setLocality(e.target.value)} placeholder="Örn. Bulancak Yaylası" required />
+            </Field>
           </div>
-          <Link to={`/gonderi/${post.id}`}>
-            <h2 className="font-serif text-3xl leading-tight tracking-[-.6px] hover:underline">
-              {post.status === "unknown" ? "Bu canlıyı tanıyor musun?" : post.commonName}
-            </h2>
-            {post.species && <p className="mt-0.5 font-serif text-lg italic text-[#50665d]">{post.species}</p>}
-          </Link>
-        </div>
-        
-        <button 
-          onClick={() => like.mutate({ postId: post.id })} 
-          disabled={like.isPending} 
-          className={cn(
-            "flex min-h-11 cursor-pointer items-center gap-2 rounded-full border px-4 text-sm font-semibold transition", 
-            post.liked ? "border-[#a63f36]/25 bg-[#a63f36]/10 text-[#8d302a]" : "border-[#09352e]/20 hover:border-[#a63f36]/40"
-          )}
-        >
-          <Heart size={19} fill={post.liked ? "currentColor" : "none"} />
-          {post.likeCount}
-        </button>
-      </div>
+          
+          <LocationPicker lat={lat} lng={lng} onChange={(la, ln) => { setLat(la); setLng(ln); }} />
+          
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <Field label="Enlem">
+              <input className={inputClass} type="number" step="any" value={lat} onChange={(e) => setLat(Number(e.target.value))} required />
+            </Field>
+            <Field label="Boylam">
+              <input className={inputClass} type="number" step="any" value={lng} onChange={(e) => setLng(Number(e.target.value))} required />
+            </Field>
+          </div>
+        </section>
 
-      {!compact && <p className="mt-4 whitespace-pre-wrap text-[15px] leading-7 text-[#354f43]">{post.description}</p>}
-      
-      {/* Meta Veriler */}
-      <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 font-mono text-[11px] text-[#5f7169]">
-        <span className="inline-flex items-center gap-1.5"><MapPin size={14} />{post.locality}, {post.city}</span>
-        <span className="inline-flex items-center gap-1.5"><CalendarDays size={14} />{formatDate(post.createdAt)} · {seasonOf(post.createdAt)}</span>
-      </div>
-      
-      {post.collaborators.length > 0 && (
-        <p className="mt-3 flex items-center gap-2 text-xs text-[#5f7169]">
-          <Users size={15} />Ortak çalışma: {post.collaborators.map((c) => `${c.firstName} ${c.lastName}`).join(", ")}
-        </p>
-      )}
-      
-      <div className="mt-4 flex gap-2">
-        <Link to={`/gonderi/${post.id}`} className={secondaryButton}>
-          {post.status === "unknown" ? "Türü şu olabilir" : "Gözlemi aç"}
-        </Link>
-      </div>
-
-      {message && <p className="mt-3 text-sm text-[#007f24]">{message}</p>}
-
-      {/* Raporlama Modalı */}
-      {reporting && (
-        <div 
-          className="fixed inset-0 z-50 grid place-items-center bg-[#09352e]/55 p-4" 
-          onMouseDown={(e) => { if (e.target === e.currentTarget) setReporting(false); }}
-        >
-          <form onSubmit={submitReport} className="w-full max-w-md rounded-2xl bg-[#f7f7f7] p-6 shadow-2xl" role="dialog" aria-modal="true" aria-label="Gönderiyi raporla">
-            <div className="mb-5 flex items-center justify-between">
-              <h3 className="font-serif text-2xl">İçeriği raporla</h3>
-              <button type="button" onClick={() => setReporting(false)} className="grid h-10 w-10 place-items-center rounded-full hover:bg-[#85c093]/20" aria-label="Kapat">
-                <X size={20} />
-              </button>
-            </div>
-            
-            <div className="space-y-4">
-              <label className="block text-sm font-semibold">Rapor nedeni
-                <select className={`${inputClass} mt-2`} value={reason} onChange={(e) => setReason(e.target.value as typeof reason)}>
-                  <option value="wrong_species">Yanlış tür bilgisi</option>
-                  <option value="misleading">Yanıltıcı içerik</option>
-                  <option value="inappropriate">Uygunsuz içerik</option>
-                  <option value="other">Diğer</option>
-                </select>
-              </label>
-              
-              <label className="block text-sm font-semibold">Açıklama
-                <textarea 
-                  className={`${inputClass} mt-2 min-h-28`} 
-                  value={details} 
-                  onChange={(e) => setDetails(e.target.value)} 
-                  minLength={5} 
-                  required 
-                  placeholder="Moderasyon ekibinin inceleyebilmesi için ayrıntı verin." 
+        <section>
+          <h2 className="mb-4 font-serif text-2xl">{unknown ? "03" : "04"} / Ortak çalışma</h2>
+          <p className="mb-3 text-sm text-[#5f7169]">Gözleme katkı veren kullanıcıları seçin. Bu kişiler gönderide ortak yazar olarak görünür.</p>
+          <div className="grid max-h-52 gap-2 overflow-y-auto rounded-xl border border-[#09352e]/15 p-3 sm:grid-cols-2">
+            {users.data?.filter((u) => u.id !== user?.id).map((u) => (
+              <label key={u.id} className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm hover:bg-[#85c093]/15">
+                <input 
+                  type="checkbox" 
+                  className="h-4 w-4 accent-[#007f24]" 
+                  checked={collaboratorIds.includes(u.id)} 
+                  onChange={(e) => setCollaboratorIds(
+                    e.target.checked 
+                      ? [...collaboratorIds, u.id] 
+                      : collaboratorIds.filter((id) => id !== u.id)
+                  )} 
                 />
+                <span>{u.firstName} {u.lastName}</span>
+                <span className="font-mono text-[10px] text-[#71807e]">@{u.username}</span>
               </label>
-              
-              {report.error && <p className="text-sm text-[#8d302a]">{errorMessage(report.error)}</p>}
-              
-              <button className={`${buttonClass} w-full`} disabled={report.isPending}>Raporu gönder</button>
-            </div>
-          </form>
+            ))}
+          </div>
+        </section>
+
+        <section>
+          <h2 className="mb-4 font-serif text-2xl">{unknown ? "04" : "05"} / Gözlem notları</h2>
+          <Field label="Tür ve gözlem hakkında bilgilendirme *">
+            <textarea 
+              className={`${inputClass} min-h-36 resize-y`} 
+              value={description} 
+              onChange={(e) => setDescription(e.target.value)} 
+              minLength={10} 
+              maxLength={5000} 
+              placeholder="Morfolojik özellikler, habitat, büyütme oranı ve ekolojik notlar…" 
+              required 
+            />
+          </Field>
+        </section>
+
+        {error && (
+          <p role="alert" className="rounded-lg border border-[#a63f36]/30 bg-[#a63f36]/5 p-4 text-sm text-[#8d302a]">
+            {error}
+          </p>
+        )}
+
+        <div className="flex justify-end gap-3 border-t border-[#09352e]/15 pt-6">
+          <button type="button" onClick={() => navigate(-1)} className={secondaryButton}>Vazgeç</button>
+          <button className={buttonClass} disabled={create.isPending}>
+            {create.isPending ? "Fotoğraflar ve kayıt yükleniyor…" : "Gözlemi yayınla"}
+          </button>
         </div>
-      )}
-    </article>
+      </form>
+    </div>
   );
 }
