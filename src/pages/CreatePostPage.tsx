@@ -70,10 +70,11 @@ export default function CreatePostPage() {
         locality, 
         lat, 
         lng, 
-        // Ana akışın ve veritabanının resmi kusursuz okuması için URL eşlemesi
+        // Zod regex kuralı için contentType "image/jpeg" yapıldı. 
+        // PostCard bileşeni görseli okurken doğrudan contentBase64'teki URL'yi kullanıyor.
         images: images.map(img => ({
           name: img.name,
-          contentType: img.url, 
+          contentType: "image/jpeg", 
           contentBase64: img.url 
         })), 
         collaboratorIds 
@@ -186,7 +187,7 @@ export default function CreatePostPage() {
         
         <div className="flex justify-end gap-3 border-t border-[#09352e]/15 pt-6">
           <button type="button" onClick={() => navigate(-1)} className={secondaryButton}>Vazgeç</button>
-          <button className={buttonClass} disabled={create.isPending}>{create.isPending ? "Fotoğraflar ve kayıt yükleniyor…" : "Gözlemi yayınla"}</button>
+          <button className={buttonClass} disabled={create.isPending}>{create.isPending ? "Fotoğraflar dan kayıt yükleniyor…" : "Gözlemi yayınla"}</button>
         </div>
       </form>
     </div>
