@@ -8,7 +8,16 @@ import { errorMessage } from "@/lib/utils";
 import { Field, PageHeading, buttonClass, inputClass, secondaryButton } from "@/components/BioUI";
 import { LocationPicker } from "@/components/BioMap";
 
-const taxLabels: [keyof typeof emptyTaxonomy, string][] = [["kingdom", "Alem"], ["phylum", "Şube"], ["className", "Sınıf"], ["orderName", "Takım"], ["family", "Familya"], ["genus", "Cins"], ["species", "Bilimsel tür adı"], ["commonName", "Türkçe yaygın ad"]];
+const taxLabels: [keyof typeof emptyTaxonomy, string][] = [
+  ["kingdom", "Alem"], 
+  ["phylum", "Şube"], 
+  ["className", "Sınıf"], 
+  ["orderName", "Takım"], 
+  ["family", "Familya"], 
+  ["genus", "Cins"], 
+  ["species", "Bilimsel tür adı"], 
+  ["commonName", "Türkçe yaygın ad"]
+];
 
 export default function CreatePostPage() {
   const { user } = useAuth(); 
@@ -23,8 +32,7 @@ export default function CreatePostPage() {
   const [lat, setLat] = useState(39.0); 
   const [lng, setLng] = useState(35.0); 
   
-  // Cloudinary'den gelen URL'leri saklıyoruz
-  const [images, setImages] = useState<{name: string, url: string}[]>([]); 
+  const [images, setImages] = useState<{name: string, url: string, format: string}[]>([]); 
   
   const [collaboratorIds, setCollaboratorIds] = useState<number[]>([]); 
   const [error, setError] = useState("");
@@ -40,16 +48,26 @@ export default function CreatePostPage() {
         {
           cloudName: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME,
           uploadPreset: import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET,
-          multiple: true,
+          multiple: true, // Birden fazla fotoğraf seçimine izin verir
           maxFiles: 8,
           clientAllowedFormats: ["jpeg", "png", "webp", "gif"],
-          maxFileSize: 12000000 // 12 MB
+          maxFileSize: 12000000, // 12 MB
+          
+          // Kırpma Özellikleri:
+          cropping: true, // Kırpma arayüzünü açar
+          croppingAspectRatio: 1, // 1:1 kare formatına zorlar (Instagram stili)
+          croppingShowDimensions: true, // Kırpılırken boyutları gösterir
+          showSkipCropButton: false, // Kullanıcının kırpmayı atlamasını engeller (İsteğe bağlı, true yaparsanız atlayabilirler)
+          croppingDefaultSelectionRatio: 1, // Varsayılan seçim alanını kare yapar
         },
         (error: any, result: any) => {
+          // Önemli: Kırpma işlemi birden fazla resim için çalışırken
+          // her resim kırpılıp başarıyla yüklendiğinde "success" event'i döner.
           if (!error && result && result.event === "success") {
             setImages(prev => [...prev, { 
               name: result.info.original_filename, 
-              url: result.info.secure_url 
+              url: result.info.secure_url,
+              format: result.info.format
             }]);
           }
         }
@@ -60,7 +78,11 @@ export default function CreatePostPage() {
   async function submit(e: FormEvent) { 
     e.preventDefault(); 
     setError(""); 
-    if (images.length === 0) return setError("Lütfen en az bir fotoğraf yükleyin.");
+    
+    if (images.length === 0) {
+      return setError("Lütfen en az bir fotoğraf yükleyin.");
+    }
+
     try { 
       const result = await create.mutateAsync({ 
         description, 
@@ -70,23 +92,24 @@ export default function CreatePostPage() {
         locality, 
         lat, 
         lng, 
-        // Zod regex kontrolünü (image/jpeg, png, webp, gif) sağlamak için uzantıya göre dinamik type üretiyoruz
         images: images.map(img => {
-          const lower = img.url.toLowerCase();
-          let cType = "image/jpeg";
-          if (lower.endsWith(".png")) cType = "image/png";
-          else if (lower.endsWith(".webp")) cType = "image/webp";
-          else if (lower.endsWith(".gif")) cType = "image/gif";
-          else if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) cType = "image/jpeg";
+          const format = (img.format || "").toLowerCase();
+          let cType = "image/jpeg"; 
+          
+          if (format === "png") cType = "image/png";
+          else if (format === "webp") cType = "image/webp";
+          else if (format === "gif") cType = "image/gif";
+          else if (format === "jpg" || format === "jpeg") cType = "image/jpeg";
 
           return {
             name: img.name,
-            contentType: cType,     // Zod regex regex kontrolünden başarıyla geçer
-            contentBase64: img.url  // Ana akışın resmi okuyacağı Cloudinary linki
+            contentType: cType,
+            contentBase64: img.url
           };
         }), 
         collaboratorIds 
       }); 
+      
       navigate(`/gonderi/${result.id}`); 
     } catch (err) { 
       setError(errorMessage(err)); 
@@ -139,7 +162,7 @@ export default function CreatePostPage() {
           <button type="button" onClick={() => widgetRef.current?.open()} className="flex min-h-36 w-full cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-[#007f24]/45 bg-[#85c093]/10 p-6 text-center transition hover:bg-[#85c093]/20">
             <ImagePlus className="mb-2 text-[#007f24]" />
             <strong className="text-sm">Fotoğraf yüklemek için tıklayın</strong>
-            <span className="mt-1 text-xs text-[#5f7169]">En fazla 8 fotoğraf · her biri en fazla 12 MB (Cloudinary)</span>
+            <span className="mt-1 text-xs text-[#5f7169]">En fazla 8 fotoğraf (Kare olarak kırpılacaktır) · her biri en fazla 12 MB</span>
           </button>
           
           {images.length > 0 && (
@@ -147,7 +170,7 @@ export default function CreatePostPage() {
               {images.map((p, i) => (
                 <div key={p.url} className="relative aspect-square overflow-hidden rounded-lg">
                   <img src={p.url} alt={p.name} className="h-full w-full object-cover" />
-                  <button type="button" onClick={() => setImages(images.filter((_, index) => index !== i))} className="absolute right-1 top-1 grid h-8 w-8 place-items-center rounded-full bg-[#f7f7f7]" aria-label="Fotoğrafı kaldır"><X size={15} /></button>
+                  <button type="button" onClick={() => setImages(images.filter((_, index) => index !== i))} className="absolute right-1 top-1 grid h-8 w-8 place-items-center rounded-full bg-[#f7f7f7]/80 hover:bg-[#f7f7f7]" aria-label="Fotoğrafı kaldır"><X size={15} /></button>
                 </div>
               ))}
             </div>
