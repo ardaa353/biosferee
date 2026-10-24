@@ -5,39 +5,199 @@ import { trpc } from "@/providers/trpc";
 import BioMap from "@/components/BioMap";
 import { Avatar, Empty, Loading, PageHeading, inputClass } from "@/components/BioUI";
 
+// Resim URL'sini güvenli bir şekilde çıkaran yardımcı fonksiyon
+function getImageUrl(image: any) {
+  if (!image) return "";
+  if (image.contentBase64 && image.contentBase64.startsWith("http")) {
+    return image.contentBase64;
+  }
+  if (image.contentBase64) {
+    return `data:${image.contentType || 'image/jpeg'};base64,${image.contentBase64}`;
+  }
+  return image.url || "";
+}
+
 export function MapPage() {
-  const query = trpc.biosfere.posts.list.useQuery(); const [filter, setFilter] = useState("all");
+  const query = trpc.biosfere.posts.list.useQuery(); 
+  const [filter, setFilter] = useState("all");
   const posts = (query.data ?? []).filter((p) => p.status !== "removed" && (filter === "all" || (filter === "unknown" ? p.status === "unknown" : p.kingdom === filter)));
-  return <div><PageHeading eyebrow="Koordinatlı açık kayıtlar" title="Ortak canlı haritası" description="Her nokta gerçek bir kullanıcı gözlemini gösterir. Noktaya dokunarak türü, lokali ve gönderi bağlantısını açabilirsiniz." /><div className="mb-4 flex flex-wrap gap-2">{["all", "Animalia", "Plantae", "Fungi", "Bacteria", "Protista", "unknown"].map((f) => <button key={f} onClick={() => setFilter(f)} className={`min-h-10 cursor-pointer rounded-full border px-4 text-xs font-semibold ${filter === f ? "border-[#09352e] bg-[#09352e] text-white" : "border-[#09352e]/20 hover:border-[#007f24]"}`}>{f === "all" ? "Tümü" : f === "unknown" ? "Bilinmeyenler" : f}</button>)}</div>{query.isLoading ? <Loading /> : <div className="overflow-hidden rounded-xl border border-[#09352e]/15"><BioMap posts={posts} /></div>}<p className="mt-3 font-mono text-[11px] text-[#71807e]">{posts.length} gözlem noktası gösteriliyor · Harita altlığı Esri / OpenStreetMap katkıcıları</p></div>;
+  
+  return (
+    <div>
+      <PageHeading eyebrow="Koordinatlı açık kayıtlar" title="Ortak canlı haritası" description="Her nokta gerçek bir kullanıcı gözlemini gösterir. Noktaya dokunarak türü, lokali ve gönderi bağlantısını açabilirsiniz." />
+      <div className="mb-4 flex flex-wrap gap-2">
+        {["all", "Animalia", "Plantae", "Fungi", "Bacteria", "Protista", "unknown"].map((f) => (
+          <button key={f} onClick={() => setFilter(f)} className={`min-h-10 cursor-pointer rounded-full border px-4 text-xs font-semibold ${filter === f ? "border-[#09352e] bg-[#09352e] text-white" : "border-[#09352e]/20 hover:border-[#007f24]"}`}>
+            {f === "all" ? "Tümü" : f === "unknown" ? "Bilinmeyenler" : f}
+          </button>
+        ))}
+      </div>
+      {query.isLoading ? <Loading /> : (
+        <div className="overflow-hidden rounded-xl border border-[#09352e]/15">
+          <BioMap posts={posts} />
+        </div>
+      )}
+      <p className="mt-3 font-mono text-[11px] text-[#71807e]">{posts.length} gözlem noktası gösteriliyor · Harita altlığı Esri / OpenStreetMap katkıcıları</p>
+    </div>
+  );
 }
 
 export function SearchPage() {
-  const postsQuery = trpc.biosfere.posts.list.useQuery(); const usersQuery = trpc.biosfere.users.list.useQuery(); const [term, setTerm] = useState(""); const [mode, setMode] = useState<"all" | "city">("all");
+  const postsQuery = trpc.biosfere.posts.list.useQuery(); 
+  const usersQuery = trpc.biosfere.users.list.useQuery(); 
+  const [term, setTerm] = useState(""); 
+  const [mode, setMode] = useState<"all" | "city">("all");
+  
   const results = useMemo(() => {
-    const q = term.trim().toLocaleLowerCase("tr-TR"); const posts = (postsQuery.data ?? []).filter((p) => p.status === "verified");
+    const q = term.trim().toLocaleLowerCase("tr-TR"); 
+    const posts = (postsQuery.data ?? []).filter((p) => p.status === "verified");
+    
     if (!q) return [];
     if (mode === "city") {
       const matching = posts.filter((p) => p.city.toLocaleLowerCase("tr-TR").includes(q));
-      const counts = new Map<string, number>(); posts.forEach((p) => p.species && counts.set(p.species, (counts.get(p.species) ?? 0) + 1));
+      const counts = new Map<string, number>(); 
+      posts.forEach((p) => p.species && counts.set(p.species, (counts.get(p.species) ?? 0) + 1));
       return matching.sort((a, b) => (counts.get(a.species ?? "") ?? 0) - (counts.get(b.species ?? "") ?? 0));
     }
     return posts.filter((p) => [p.species, p.commonName, p.genus, p.family, p.city, p.author.username, p.author.firstName, p.author.lastName].some((v) => v?.toLocaleLowerCase("tr-TR").includes(q)));
   }, [postsQuery.data, term, mode]);
+  
   const matchingUsers = term && mode === "all" ? (usersQuery.data ?? []).filter((u) => `${u.firstName} ${u.lastName} ${u.username}`.toLocaleLowerCase("tr-TR").includes(term.toLocaleLowerCase("tr-TR"))) : [];
-  return <div className="mx-auto max-w-5xl"><PageHeading eyebrow="Tür, cins, kişi ve şehir" title="Kayıtlarda keşfet" description="Şehir kipinde sonuçlar, türün platformdaki fotoğraf sayısına göre en az kayıtlı olandan en çok kayıtlı olana doğru sıralanır." /><div className="relative"><Search className="absolute left-4 top-4 text-[#007f24]" size={20} /><input autoFocus className={`${inputClass} min-h-14 pl-12 pr-32 text-base`} value={term} onChange={(e) => setTerm(e.target.value)} placeholder={mode === "city" ? "Şehir yazın: Giresun, Van…" : "Tür, cins, kişi veya konum yazın…"} /><div className="absolute right-2 top-2 flex rounded-full bg-[#e4ebe3] p-1"><button onClick={() => setMode("all")} className={`min-h-10 rounded-full px-3 text-xs font-semibold ${mode === "all" ? "bg-[#09352e] text-white" : ""}`}>Genel</button><button onClick={() => setMode("city")} className={`min-h-10 rounded-full px-3 text-xs font-semibold ${mode === "city" ? "bg-[#09352e] text-white" : ""}`}>Şehir / nadirlik</button></div></div>
-    {!term ? <div className="py-16 text-center"><p className="font-serif text-2xl">Ne arıyorsun?</p><p className="mt-2 text-sm text-[#71807e]">Örneğin “Amanita”, “Felis” veya “Rize” ile başlayabilirsin.</p></div> : <div className="mt-8">{matchingUsers.length > 0 && <section className="mb-8"><h2 className="mb-3 font-serif text-2xl">Kullanıcılar</h2><div className="flex flex-wrap gap-3">{matchingUsers.map((u) => <Link key={u.id} to={`/profil/${u.username}`} className="flex items-center gap-3 rounded-full border border-[#09352e]/15 py-2 pl-2 pr-5 hover:border-[#007f24]"><Avatar user={u} size="sm" /><span className="text-sm font-semibold">{u.firstName} {u.lastName}</span></Link>)}</div></section>}<div className="mb-4 flex items-center justify-between"><h2 className="font-serif text-2xl">Gözlemler</h2><span className="font-mono text-[11px] text-[#71807e]">{results.length} kayıt</span></div>{results.length ? <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{results.map((p, i) => <Link key={p.id} to={`/gonderi/${p.id}`} className="group overflow-hidden rounded-xl border border-[#09352e]/15 bg-[#fdfefb] transition hover:-translate-y-0.5 hover:border-[#007f24]/50">{p.images[0] && <div className="aspect-[4/3] overflow-hidden"><img src={p.images[0].url} alt={p.commonName ?? ""} className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.02]" /></div>}<div className="p-4"><div className="flex items-start justify-between gap-2"><div><h3 className="font-serif text-xl">{p.commonName}</h3><p className="font-serif text-sm italic text-[#5f7169]">{p.species}</p></div>{mode === "city" && <span className="font-mono text-[10px] text-[#007f24]">#{i + 1}</span>}</div><p className="mt-3 flex items-center gap-1 font-mono text-[10px] text-[#71807e]"><MapPin size={12} />{p.city} · @{p.author.username}</p></div></Link>)}</div> : <Empty title="Eşleşen kayıt bulunamadı" text="Yazımı kontrol edin veya daha genel bir tür, cins ya da şehir adı deneyin." />}</div>}
-  </div>;
+  
+  return (
+    <div className="mx-auto max-w-5xl">
+      <PageHeading eyebrow="Tür, cins, kişi ve şehir" title="Kayıtlarda keşfet" description="Şehir kipinde sonuçlar, türün platformdaki fotoğraf sayısına göre en az kayıtlı olandan en çok kayıtlı olana doğru sıralanır." />
+      <div className="relative">
+        <Search className="absolute left-4 top-4 text-[#007f24]" size={20} />
+        <input autoFocus className={`${inputClass} min-h-14 pl-12 pr-32 text-base`} value={term} onChange={(e) => setTerm(e.target.value)} placeholder={mode === "city" ? "Şehir yazın: Giresun, Van…" : "Tür, cins, kişi veya konum yazın…"} />
+        <div className="absolute right-2 top-2 flex rounded-full bg-[#e4ebe3] p-1">
+          <button onClick={() => setMode("all")} className={`min-h-10 rounded-full px-3 text-xs font-semibold ${mode === "all" ? "bg-[#09352e] text-white" : ""}`}>Genel</button>
+          <button onClick={() => setMode("city")} className={`min-h-10 rounded-full px-3 text-xs font-semibold ${mode === "city" ? "bg-[#09352e] text-white" : ""}`}>Şehir / nadirlik</button>
+        </div>
+      </div>
+      
+      {!term ? (
+        <div className="py-16 text-center">
+          <p className="font-serif text-2xl">Ne arıyorsun?</p>
+          <p className="mt-2 text-sm text-[#71807e]">Örneğin “Amanita”, “Felis” veya “Rize” ile başlayabilirsin.</p>
+        </div>
+      ) : (
+        <div className="mt-8">
+          {matchingUsers.length > 0 && (
+            <section className="mb-8">
+              <h2 className="mb-3 font-serif text-2xl">Kullanıcılar</h2>
+              <div className="flex flex-wrap gap-3">
+                {matchingUsers.map((u) => (
+                  <Link key={u.id} to={`/profil/${u.username}`} className="flex items-center gap-3 rounded-full border border-[#09352e]/15 py-2 pl-2 pr-5 hover:border-[#007f24]">
+                    <Avatar user={u} size="sm" />
+                    <span className="text-sm font-semibold">{u.firstName} {u.lastName}</span>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          )}
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="font-serif text-2xl">Gözlemler</h2>
+            <span className="font-mono text-[11px] text-[#71807e]">{results.length} kayıt</span>
+          </div>
+          {results.length ? (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {results.map((p, i) => (
+                <Link key={p.id} to={`/gonderi/${p.id}`} className="group overflow-hidden rounded-xl border border-[#09352e]/15 bg-[#fdfefb] transition hover:-translate-y-0.5 hover:border-[#007f24]/50">
+                  {p.images[0] && (
+                    <div className="aspect-[4/3] overflow-hidden">
+                      <img src={getImageUrl(p.images[0])} alt={p.commonName ?? ""} className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.02]" />
+                    </div>
+                  )}
+                  <div className="p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h3 className="font-serif text-xl">{p.commonName}</h3>
+                        <p className="font-serif text-sm italic text-[#5f7169]">{p.species}</p>
+                      </div>
+                      {mode === "city" && <span className="font-mono text-[10px] text-[#007f24]">#{i + 1}</span>}
+                    </div>
+                    <p className="mt-3 flex items-center gap-1 font-mono text-[10px] text-[#71807e]">
+                      <MapPin size={12} />{p.city} · @{p.author.username}
+                    </p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <Empty title="Eşleşen kayıt bulunamadı" text="Yazımı kontrol edin veya daha genel bir tür, cins ya da şehir adı deneyin." />
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function TaxonomyPage() {
-  const query = trpc.biosfere.posts.list.useQuery(); const [term, setTerm] = useState("");
+  const query = trpc.biosfere.posts.list.useQuery(); 
+  const [term, setTerm] = useState("");
+  
   const tree = useMemo(() => {
     const result: Record<string, Record<string, Record<string, Record<string, typeof query.data>>>> = {};
     (query.data ?? []).filter((p) => p.status === "verified").forEach((p) => {
-      const text = [p.kingdom, p.phylum, p.className, p.orderName, p.family, p.genus, p.species, p.commonName].join(" ").toLocaleLowerCase("tr-TR"); if (term && !text.includes(term.toLocaleLowerCase("tr-TR"))) return;
+      const text = [p.kingdom, p.phylum, p.className, p.orderName, p.family, p.genus, p.species, p.commonName].join(" ").toLocaleLowerCase("tr-TR"); 
+      if (term && !text.includes(term.toLocaleLowerCase("tr-TR"))) return;
       const k = p.kingdom ?? "Diğer", f = p.family ?? "Familya yok", g = p.genus ?? "Cins yok", s = p.species ?? "Tür yok";
       result[k] ??= {}; result[k][f] ??= {}; result[k][f][g] ??= {}; result[k][f][g][s] ??= []; result[k][f][g][s]!.push(p);
-    }); return result;
+    }); 
+    return result;
   }, [query.data, term]);
-  return <div><PageHeading eyebrow="Alem → Familya → Cins → Tür" title="Sistematik şema" description="Doğrulanan her gözlem sınıflandırmadaki yerine otomatik eklenir. Dalları açın; cinse ait türleri ve gözlem kayıtlarını birlikte inceleyin." /><input className={`${inputClass} mb-7 max-w-lg`} value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Şemada tür, cins veya familya ara…" />{query.isLoading ? <Loading /> : Object.keys(tree).length ? <div className="space-y-4">{Object.entries(tree).map(([kingdom, families]) => <details key={kingdom} open className="rounded-xl border border-[#09352e]/20 bg-[#fdfefb] p-5"><summary className="cursor-pointer font-serif text-3xl font-semibold">{kingdom}<span className="ml-3 font-mono text-[11px] font-normal text-[#71807e]">ALEM</span></summary><div className="ml-2 mt-5 space-y-4 border-l border-[#85c093] pl-5">{Object.entries(families).map(([family, genera]) => <details key={family} open={Boolean(term)}><summary className="min-h-11 cursor-pointer py-2 font-serif text-xl">{family}<span className="ml-2 font-mono text-[10px] text-[#71807e]">FAMILYA</span></summary><div className="ml-2 mt-2 space-y-3 border-l border-[#09352e]/15 pl-5">{Object.entries(genera).map(([genus, species]) => <details key={genus} open={Boolean(term)}><summary className="min-h-11 cursor-pointer py-2 font-serif text-lg italic">{genus}<span className="ml-2 font-mono text-[10px] not-italic text-[#71807e]">CİNS</span></summary><div className="mt-2 grid gap-3 sm:grid-cols-2">{Object.entries(species).flatMap(([sp, posts]) => posts?.map((p) => <Link key={p.id} to={`/gonderi/${p.id}`} className="group flex gap-3 rounded-lg border border-[#09352e]/10 p-3 hover:border-[#007f24]">{p.images[0] && <img src={p.images[0].url} alt="" className="h-16 w-16 rounded-md object-cover" />}<div className="min-w-0 flex-1"><p className="font-serif text-lg">{p.commonName}</p><p className="truncate font-serif text-sm italic text-[#5f7169]">{sp}</p><p className="mt-1 font-mono text-[10px] text-[#71807e]">{p.city} · {posts.length} kayıt</p></div><ArrowUpRight size={16} /></Link>))}</div></details>)}</div></details>)}</div></details>)}</div> : <Empty title="Sistematik şema henüz boş" text="Tür bilgisi doğrulanmış ilk gözlemle birlikte şema otomatik oluşacak." />}</div>;
+  
+  return (
+    <div>
+      <PageHeading eyebrow="Alem → Familya → Cins → Tür" title="Sistematik şema" description="Doğrulanan her gözlem sınıflandırmadaki yerine otomatik eklenir. Dalları açın; cinse ait türleri ve gözlem kayıtlarını birlikte inceleyin." />
+      <input className={`${inputClass} mb-7 max-w-lg`} value={term} onChange={(e) => setTerm(e.target.value)} placeholder="Şemada tür, cins veya familya ara…" />
+      {query.isLoading ? <Loading /> : Object.keys(tree).length ? (
+        <div className="space-y-4">
+          {Object.entries(tree).map(([kingdom, families]) => (
+            <details key={kingdom} open className="rounded-xl border border-[#09352e]/20 bg-[#fdfefb] p-5">
+              <summary className="cursor-pointer font-serif text-3xl font-semibold">
+                {kingdom}<span className="ml-3 font-mono text-[11px] font-normal text-[#71807e]">ALEM</span>
+              </summary>
+              <div className="ml-2 mt-5 space-y-4 border-l border-[#85c093] pl-5">
+                {Object.entries(families).map(([family, genera]) => (
+                  <details key={family} open={Boolean(term)}>
+                    <summary className="min-h-11 cursor-pointer py-2 font-serif text-xl">
+                      {family}<span className="ml-2 font-mono text-[10px] text-[#71807e]">FAMILYA</span>
+                    </summary>
+                    <div className="ml-2 mt-2 space-y-3 border-l border-[#09352e]/15 pl-5">
+                      {Object.entries(genera).map(([genus, species]) => (
+                        <details key={genus} open={Boolean(term)}>
+                          <summary className="min-h-11 cursor-pointer py-2 font-serif text-lg italic">
+                            {genus}<span className="ml-2 font-mono text-[10px] not-italic text-[#71807e]">CİNS</span>
+                          </summary>
+                          <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                            {Object.entries(species).flatMap(([sp, posts]) => posts?.map((p) => (
+                              <Link key={p.id} to={`/gonderi/${p.id}`} className="group flex gap-3 rounded-lg border border-[#09352e]/10 p-3 hover:border-[#007f24]">
+                                {p.images[0] && (
+                                  <img src={getImageUrl(p.images[0])} alt="" className="h-16 w-16 rounded-md object-cover" />
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <p className="font-serif text-lg">{p.commonName}</p>
+                                  <p className="truncate font-serif text-sm italic text-[#5f7169]">{sp}</p>
+                                  <p className="mt-1 font-mono text-[10px] text-[#71807e]">{p.city} · {posts.length} kayıt</p>
+                                </div>
+                                <ArrowUpRight size={16} />
+                              </Link>
+                            )))}
+                          </div>
+                        </details>
+                      ))}
+                    </div>
+                  </details>
+                ))}
+              </div>
+            </details>
+          ))}
+        </div>
+      ) : (
+        <Empty title="Sistematik şema henüz boş" text="Tür bilgisi doğrulanmış ilk gözlemle birlikte şema otomatik oluşacak." />
+      )}
+    </div>
+  );
 }
