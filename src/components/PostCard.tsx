@@ -101,14 +101,15 @@ export default function PostCard({
       id={"gonderi-" + post.id}
     >
       <header className="mb-4 flex items-center gap-3">
-        {/* YENİ: Profil linki "/profil/" yerine doğrudan "/username" olarak güncellendi */}
-        <Link to={`/${post.author.username}`}>
+        {/* DÜZELTİLDİ: /profil/ eklendi */}
+        <Link to={`/profil/${post.author.username}`}>
           <Avatar user={post.author} />
         </Link>
 
         <div className="min-w-0 flex-1">
+          {/* DÜZELTİLDİ: /profil/ eklendi */}
           <Link
-            to={`/${post.author.username}`}
+            to={`/profil/${post.author.username}`}
             className="text-sm font-bold hover:underline hover:text-[#007f24] transition-colors"
           >
             {post.author.firstName} {post.author.lastName}
@@ -299,10 +300,10 @@ export default function PostCard({
         <p className="mt-3 flex items-center gap-2 text-xs text-[#5f7169]">
           <Users size={15} />
           Ortak çalışma:{" "}
-          {/* YENİ: Ortak çalışanların isimleri de artık tıklanabilir ve profillerine gidiyor */}
           {post.collaborators.map((c, index) => (
             <span key={c.id}>
-              <Link to={`/${c.username}`} className="hover:underline hover:text-[#007f24] font-semibold transition-colors">
+              {/* DÜZELTİLDİ: /profil/ eklendi */}
+              <Link to={`/profil/${c.username}`} className="hover:underline hover:text-[#007f24] font-semibold transition-colors">
                 {c.firstName} {c.lastName}
               </Link>
               {index < post.collaborators.length - 1 ? ", " : ""}
