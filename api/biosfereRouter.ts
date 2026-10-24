@@ -54,9 +54,6 @@ async function presignMap(keys: string[]): Promise<Record<string, string>> {
   return Object.fromEntries(result.urls.map((item) => [item.key, item.url]));
 }
 
-// ---------------------------------------------------------
-// FOTOĞRAF YÜKLEME VE BASE64 TEMİZLEME FONKSİYONU
-// ---------------------------------------------------------
 async function resolveImages(files: z.infer<typeof imageInput>[], prefix: string) {
   const saved = [];
   for (const file of files) {
@@ -65,7 +62,6 @@ async function resolveImages(files: z.infer<typeof imageInput>[], prefix: string
       continue;
     }
 
-    // ÖNEMLİ DÜZELTME: Base64'ün başındaki "data:image/jpeg;base64," etiketini siliyoruz ki dosya bozulmasın
     const base64String = file.contentBase64.replace(/^data:image\/\w+;base64,/, "");
 
     const bytes = Uint8Array.from(Buffer.from(base64String, "base64"));
