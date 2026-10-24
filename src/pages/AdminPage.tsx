@@ -174,13 +174,19 @@ export default function AdminPage() {
                           </button>
                         </td>
                         <td className="py-3 px-4">
-                          <div className="flex items-center gap-3">
+                          <Link 
+                            to={`/${u.username}`} 
+                            className="flex items-center gap-3 hover:bg-[#007f24]/5 p-2 -ml-2 rounded-lg transition-colors group"
+                            title={`${u.firstName} profiline git`}
+                          >
                             <Avatar user={u} size="sm" />
                             <div>
-                              <p className="text-sm font-semibold text-[#09352e]">{u.firstName} {u.lastName}</p>
+                              <p className="text-sm font-semibold text-[#09352e] group-hover:text-[#007f24] transition-colors">
+                                {u.firstName} {u.lastName}
+                              </p>
                               <p className="font-mono text-[10px] text-[#71807e]">@{u.username}</p>
                             </div>
-                          </div>
+                          </Link>
                         </td>
                         <td className="max-w-[200px] truncate px-4 text-xs text-[#50665d]">{u.bio || "-"}</td>
                         <td className="font-mono text-xs px-4">{u.reputation}</td>
