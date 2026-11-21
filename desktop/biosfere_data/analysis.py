@@ -58,7 +58,7 @@ class BioClipEngine:
         progress("Görüntü modeli " + self.device.upper() + " üzerinde açılıyor…")
         model = open_clip.create_model(MODEL_NAME, pretrained=checkpoint, precision=precision, device="cpu")
         self.visual = model.visual.eval().to(self.device)
-        self.dtype = next(self.visual.parameters()).dtype
+        self.dtype = self.visual.conv1.weight.dtype
         self.scale = float(model.logit_scale.detach().float().exp().cpu())
         del model
         # The upstream pybioclip TreeOfLife classifier uses full-frame 224 x 224 preprocessing.
