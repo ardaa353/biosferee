@@ -52,6 +52,20 @@ const imageInput = z.object({
   contentBase64: z.string().url().max(512),
 });
 
+const observationInput = z.object({
+  description: z.string().trim().min(10).max(5000),
+  unknown: z.boolean(),
+  ...taxonomyFields,
+  city: z.string().trim().min(2).max(100),
+  locality: z.string().trim().min(2).max(200),
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+  images: z.array(imageInput),
+  collaboratorIds: z.array(z.number().int().positive()).max(30).default([]),
+}).refine(value => value.unknown || Boolean(value.species?.trim()), {
+  path: ["species"], message: "Bilimsel tür adı gir veya türü bilinmiyor seçeneğini kullan.",
+});
+
 // ---------------------------------------------------------
 // ŞİFRE İŞLEMLERİ
 // ---------------------------------------------------------
@@ -388,25 +402,7 @@ export const biosfereRouter = createRouter({
       }),
 
     create: authedQuery
-      .input(
-        z
-          .object({
-            description: z.string().trim().min(10).max(5000),
-            unknown: z.boolean(),
-            ...taxonomyFields,
-            city: z.string().trim().min(2).max(100),
-            locality: z.string().trim().min(2).max(200),
-            lat: z.number().min(-90).max(90),
-            lng: z.number().min(-180).max(180),
-            images: z.array(imageInput).min(1),
-            collaboratorIds: z.array(z.number()).max(30).default([]),
-          })
-          .superRefine((value, ctx) => {
-            if (!value.unknown && !value.species?.trim()) {
-              ctx.addIssue({ code: "custom", path: ["species"], message: "Bilimsel tür adı gir veya türü bilinmiyor seçeneğini kullan." });
-            }
-          })
-      )
+      .input(observationInput.safeExtend({ images: z.array(imageInput).min(1) }))
       .mutation(async ({ ctx, input }) => {
         const db = getDb();
         const savedImages = await resolveImages(input.images);
@@ -429,6 +425,58 @@ export const biosfereRouter = createRouter({
           }
           if (partnerIds.length) await tx.insert(collaborators).values(partnerIds.map(userId => ({ postId: id, userId })));
           return { id };
+        });
+      }),
+
+    update: authedQuery
+      .input(observationInput.safeExtend({
+        id: z.number().int().positive(),
+        keptImageIds: z.array(z.number().int().positive()).default([]),
+      }).refine(value => value.images.length + value.keptImageIds.length > 0, {
+        path: ["images"], message: "En az bir fotoğraf bırakmalısın.",
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const savedImages = await resolveImages(input.images);
+        return getDb().transaction(async tx => {
+          const [post] = await tx.select().from(posts).where(eq(posts.id, input.id)).limit(1).for("update");
+          if (!post || post.status === "removed") throw new TRPCError({ code: "NOT_FOUND", message: "Gönderi bulunamadı." });
+          if (post.authorId !== ctx.user.id && ctx.user.role !== "admin") {
+            throw new TRPCError({ code: "FORBIDDEN", message: "Bu gönderiyi düzenleme yetkiniz yok." });
+          }
+          const currentImages = await tx.select().from(postImages).where(eq(postImages.postId, post.id));
+          const keptIds = [...new Set(input.keptImageIds)];
+          if (keptIds.some(id => !currentImages.some(image => image.id === id))) {
+            throw new TRPCError({ code: "CONFLICT", message: "Fotoğraflar değişmiş. Sayfayı yenileyip tekrar dene." });
+          }
+          const classification = {
+            kingdom: input.unknown ? null : input.kingdom ?? null,
+            phylum: input.unknown ? null : input.phylum ?? null,
+            className: input.unknown ? null : input.className ?? null,
+            orderName: input.unknown ? null : input.orderName ?? null,
+            family: input.unknown ? null : input.family ?? null,
+            genus: input.unknown ? null : input.genus ?? null,
+            species: input.unknown ? null : input.species ?? null,
+            commonName: input.unknown ? null : input.commonName ?? null,
+          };
+          await tx.update(posts).set({
+            description: input.description, ...classification,
+            status: input.unknown ? "unknown" : "verified",
+            city: input.city, locality: input.locality, lat: input.lat, lng: input.lng,
+          }).where(eq(posts.id, post.id));
+          const removedIds = currentImages.filter(image => !keptIds.includes(image.id)).map(image => image.id);
+          if (removedIds.length) await tx.delete(postImages).where(and(eq(postImages.postId, post.id), inArray(postImages.id, removedIds)));
+          for (const [sortOrder, id] of keptIds.entries()) {
+            await tx.update(postImages).set({ sortOrder }).where(and(eq(postImages.id, id), eq(postImages.postId, post.id)));
+          }
+          for (let start = 0; start < savedImages.length; start += 100) {
+            await tx.insert(postImages).values(savedImages.slice(start, start + 100).map((image, index) => ({
+              postId: post.id, fileKey: image.key, sortOrder: keptIds.length + start + index,
+            })));
+          }
+          const partnerIds = [...new Set(input.collaboratorIds)].filter(id => id !== post.authorId);
+          await tx.delete(collaborators).where(eq(collaborators.postId, post.id));
+          if (partnerIds.length) await tx.insert(collaborators).values(partnerIds.map(userId => ({postId: post.id, userId})));
+          return { id: post.id };
         });
       }),
 

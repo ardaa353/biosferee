@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
+import { NavLink, Outlet, useNavigate } from "react-router";
 import { CircleHelp, Home, LogOut, Map, Network, Plus, Search, ShieldCheck, UserRound } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { trpc } from "@/providers/trpc";
@@ -9,7 +9,7 @@ const nav = [
   { to: "/harita", label: "Ortak harita", icon: Map }, { to: "/sistematik", label: "Sistematik şema", icon: Network },
 ];
 export default function AppShell() {
-  const { user, logout } = useAuth(); const navigate = useNavigate(); const location = useLocation();
+  const { user, logout } = useAuth(); const navigate = useNavigate();
   const posts = trpc.biosfere.posts.list.useQuery();
   const unknownCount = posts.data?.filter((p) => p.status === "unknown").length ?? 0;
   if (!user) return null;
@@ -24,6 +24,6 @@ export default function AppShell() {
     </aside>
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-[#09352e]/15 bg-[#f7f7f7]/95 px-4 backdrop-blur lg:hidden"><Logo /><button onClick={() => navigate("/paylas")} className="grid h-11 w-11 place-items-center rounded-full bg-[#007f24] text-white" aria-label="Yeni gözlem"><Plus size={21} /></button></header>
     <main className="min-w-0 px-4 pb-28 pt-7 sm:px-7 lg:col-start-2 lg:px-10 lg:pb-12 lg:pt-10 xl:px-14"><div className="mx-auto max-w-[1240px]"><Outlet /></div></main>
-    <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-[#09352e]/15 bg-[#f7f7f7]/97 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">{[...nav.slice(0, 3), { to: "/bilinmeyenler", label: "Bilinmeyen", icon: CircleHelp }, { to: `/profil/${user.username}`, label: "Profil", icon: UserRound }].map((n) => <NavLink key={n.to} to={n.to} className={({ isActive }) => `flex min-h-16 flex-col items-center justify-center gap-1 text-[10px] font-semibold ${isActive || (n.to === "/bilinmeyenler" && location.pathname === "/sistematik") ? "text-[#007f24]" : "text-[#71807e]"}`}><n.icon size={20} /><span>{n.label === "Gözlem akışı" ? "Akış" : n.label === "Tür & şehir ara" ? "Keşfet" : n.label === "Ortak harita" ? "Harita" : n.label}</span></NavLink>)}</nav>
+    <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-6 border-t border-[#09352e]/15 bg-[#f7f7f7]/97 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">{[...nav, { to: "/bilinmeyenler", label: "Bilinmeyen", icon: CircleHelp }, { to: `/profil/${user.username}`, label: "Profil", icon: UserRound }].map((n) => <NavLink key={n.to} to={n.to} className={({ isActive }) => `flex min-h-16 flex-col items-center justify-center gap-1 text-[10px] font-semibold ${isActive ? "text-[#007f24]" : "text-[#71807e]"}`}><n.icon size={20} /><span>{n.label === "Gözlem akışı" ? "Akış" : n.label === "Tür & şehir ara" ? "Keşfet" : n.label === "Ortak harita" ? "Harita" : n.label === "Sistematik şema" ? "Sistematik" : n.label}</span></NavLink>)}</nav>
   </div>;
 }

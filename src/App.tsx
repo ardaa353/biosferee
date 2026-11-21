@@ -6,6 +6,7 @@ import AppShell from "@/components/AppShell";
 import { LoginPage, RegisterPage } from "@/pages/AuthPages";
 import { FeedPage, UnknownPage } from "@/pages/FeedPages";
 const CreatePostPage = lazy(() => import("@/pages/CreatePostPage"));
+const EditPostPage = lazy(() => import("@/pages/EditPostPage"));
 const PostDetailPage = lazy(() => import("@/pages/PostDetailPage"));
 const MapPage = lazy(() => import("@/pages/ExplorePages").then(m => ({ default: m.MapPage })));
 const SearchPage = lazy(() => import("@/pages/ExplorePages").then(m => ({ default: m.SearchPage })));
@@ -54,6 +55,7 @@ export default function App() {
         <Route element={<Protected />}>
           <Route path="/akis" element={<FeedPage />} />
           <Route path="/paylas" element={<CreatePostPage />} />
+          <Route path="/gonderi/:id/duzenle" element={<EditPostPage />} />
           <Route path="/gonderi/:id" element={<PostDetailPage />} />
           <Route path="/bilinmeyenler" element={<UnknownPage />} />
           <Route path="/arama" element={<SearchPage />} />

@@ -119,16 +119,13 @@ export default function PostCard({
         <div className="flex items-center gap-1">
           {isOwnerOrAdmin && (
             <>
-              <button
-                type="button"
-                onClick={() => {
-                  window.alert("Düzenleme sayfası henüz bağlanmadı.");
-                }}
+              <Link
+                to={`/gonderi/${post.id}/duzenle`}
                 className="grid h-11 w-11 cursor-pointer place-items-center rounded-full text-[#71807e] transition hover:bg-blue-500/10 hover:text-blue-600"
                 aria-label="Gönderiyi düzenle"
               >
                 <Pencil size={18} />
-              </button>
+              </Link>
 
               <button
                 type="button"

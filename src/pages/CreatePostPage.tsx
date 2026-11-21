@@ -1,6 +1,7 @@
+import type { BioPost } from "@/lib/types";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { Crosshair, ImagePlus } from "lucide-react";
+import { Crosshair, ImagePlus, X } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/lib/auth";
 import { emptyTaxonomy, type Taxonomy } from "@contracts/taxonomy";
@@ -20,16 +21,24 @@ import {
 import { LocationPicker } from "@/components/BioMap";
 
 export default function CreatePostPage() {
+  return <ObservationForm />;
+}
+
+export function ObservationForm({ initial }: { initial?: BioPost }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
 
   const [unknown, setUnknown] = useState(
-    params.get("bilinmiyor") === "1"
+    initial ? initial.status === "unknown" : params.get("bilinmiyor") === "1"
   );
 
-  const [tax, setTax] = useState(emptyTaxonomy);
-  const taxonomyOrigin = useRef<"empty" | "model" | "manual">("empty");
+  const [tax, setTax] = useState<Taxonomy>(() => initial ? {
+    kingdom: initial.kingdom || "", phylum: initial.phylum || "", className: initial.className || "",
+    orderName: initial.orderName || "", family: initial.family || "", genus: initial.genus || "",
+    species: initial.species || "", commonName: initial.commonName || "",
+  } : { ...emptyTaxonomy });
+  const taxonomyOrigin = useRef<"empty" | "model" | "manual">(initial ? "manual" : "empty");
   const applyAutomatic = useCallback((value: Taxonomy) => {
     if (taxonomyOrigin.current !== "manual") {
       taxonomyOrigin.current = "model";
@@ -46,12 +55,12 @@ export default function CreatePostPage() {
       setTax(emptyTaxonomy);
     }
   }
-  const [description, setDescription] = useState("");
-  const [city, setCity] = useState("");
-  const [locality, setLocality] = useState("");
-  const [lat, setLat] = useState(39.0);
-  const [lng, setLng] = useState(35.0);
-  const [hasLocation, setHasLocation] = useState(false);
+  const [description, setDescription] = useState(initial?.description || "");
+  const [city, setCity] = useState(initial?.city || "");
+  const [locality, setLocality] = useState(initial?.locality || "");
+  const [lat, setLat] = useState(initial?.lat ?? 39.0);
+  const [lng, setLng] = useState(initial?.lng ?? 35.0);
+  const [hasLocation, setHasLocation] = useState(Boolean(initial));
   const [preparing, setPreparing] = useState("");
   const [fileIssues, setFileIssues] = useState<string[]>([]);
   const preparingRef = useRef(false);
@@ -59,15 +68,18 @@ export default function CreatePostPage() {
   const addressRequest = useRef<AbortController | null>(null);
   useEffect(() => () => addressRequest.current?.abort(), []);
   const [files, setFiles] = useState<File[]>([]);
-  const [collaboratorIds, setCollaboratorIds] = useState<number[]>([]);
+  const [keptImages, setKeptImages] = useState(initial?.images ?? []);
+  const [collaboratorIds, setCollaboratorIds] = useState<number[]>(initial?.collaborators.map(person => person.id) ?? []);
   const [collaboratorSearch, setCollaboratorSearch] = useState(""); // YENİ: Arama çubuğu için state
   const [error, setError] = useState("");
   const [uploadProgress, setUploadProgress] = useState("");
 
   const users = trpc.biosfere.users.list.useQuery();
   const create = trpc.biosfere.posts.create.useMutation();
+  const update = trpc.biosfere.posts.update.useMutation();
+  const utils = trpc.useUtils();
 
-  const busy = Boolean(uploadProgress || preparing) || create.isPending;
+  const busy = Boolean(uploadProgress || preparing) || create.isPending || update.isPending;
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(event.target.files ?? []);
     event.target.value = "";
@@ -97,7 +109,7 @@ export default function CreatePostPage() {
     if (preparingRef.current || submitting.current) return;
     setError("");
 
-    if (files.length === 0) {
+    if (files.length + keptImages.length === 0) {
       setError("Lütfen en az bir fotoğraf seç.");
       return;
     }
@@ -132,7 +144,7 @@ export default function CreatePostPage() {
         images.push(await uploadPreparedPhoto(file));
       }
       setUploadProgress("Gözlem kaydediliyor…");
-      const result = await create.mutateAsync({
+      const payload = {
         description: description.trim(),
         unknown,
         ...tax,
@@ -142,7 +154,15 @@ export default function CreatePostPage() {
         lng,
         images,
         collaboratorIds,
-      });
+      };
+      const result = initial
+        ? await update.mutateAsync({ ...payload, id: initial.id, keptImageIds: keptImages.map(image => image.id) })
+        : await create.mutateAsync(payload);
+      await Promise.all([
+        utils.biosfere.posts.list.invalidate(),
+        utils.biosfere.posts.get.invalidate({ id: result.id }),
+        utils.biosfere.users.list.invalidate(),
+      ]);
 
       // 3. Oluşturulan gönderiye git.
       navigate(`/gonderi/${result.id}`);
@@ -205,12 +225,12 @@ export default function CreatePostPage() {
   return (
     <div className="mx-auto max-w-4xl">
       <PageHeading
-        eyebrow="Yeni saha kaydı"
-        title="Gözlem paylaş"
-        description="Fotoğrafları, konumu ve biyolojik notları ekleyin. Kayıt tarihi ve mevsimi sistem tarafından otomatik eklenir."
+        eyebrow={initial ? "Gözlem düzenleme" : "Yeni saha kaydı"}
+        title={initial ? "Gönderiyi düzenle" : "Gözlem paylaş"}
+        description={initial ? "Fotoğrafları, gözlem notunu ve sistematik bilgileri güncelleyin." : "Fotoğrafları, konumu ve biyolojik notları ekleyin. Kayıt tarihi ve mevsimi sistem tarafından otomatik eklenir."}
       />
 
-      <form onSubmit={submit}><fieldset className="min-w-0 space-y-9" disabled={Boolean(uploadProgress) || create.isPending}>
+      <form onSubmit={submit}><fieldset className="min-w-0 space-y-9" disabled={Boolean(uploadProgress) || create.isPending || update.isPending}>
         {/* Tür bilgisi */}
         <section>
           <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#a96d15]/30 bg-[#f2e5c9]/60 p-4">
@@ -238,12 +258,19 @@ export default function CreatePostPage() {
           <h2 className="mb-3 font-serif text-2xl">Fotoğraflar</h2>
           <label className="flex min-h-28 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-[#007f24]/45 bg-[#85c093]/10 p-5 text-center focus-within:ring-2 focus-within:ring-[#007f24]">
             <ImagePlus className="text-[#007f24]" />
-            <strong className="text-sm">{files.length ? "Başka fotoğraf ekle" : "Fotoğraf seç"}</strong>
+            <strong className="text-sm">{files.length + keptImages.length ? "Başka fotoğraf ekle" : "Fotoğraf seç"}</strong>
             <span className="text-xs text-[#50665d]">Birden fazla fotoğraf seçebilirsin. Büyük görseller cihazında küçültülür.</span>
             <input type="file" accept={photoAccept} multiple className="sr-only" onChange={handleFileChange} disabled={busy} />
           </label>
           {preparing && <p className="mt-2 text-sm" role="status">{preparing}</p>}
           {fileIssues.length > 0 && <ul role="alert" className="mt-2 text-sm text-[#8d302a]">{fileIssues.map((m,i) => <li key={i}>{m}</li>)}</ul>}
+          {keptImages.length > 0 && <fieldset disabled={busy} className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5">
+            {keptImages.map((image, index) => <div key={image.id} className="relative aspect-square overflow-hidden rounded-lg bg-[#eaf0e8]">
+              <img src={image.url} alt={"Mevcut fotoğraf " + (index + 1)} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+              <button type="button" onClick={() => setKeptImages(current => current.filter(item => item.id !== image.id))}
+                className="absolute right-1 top-1 grid h-10 w-10 place-items-center rounded-full bg-white/90" aria-label={"Mevcut fotoğraf " + (index + 1) + " kaldır"}><X size={16} /></button>
+            </div>)}
+          </fieldset>}
           {files.length > 0 && <fieldset disabled={busy} className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5">
             {files.map((file, i) => <PhotoThumb key={file.name + "/" + file.lastModified + "/" + i} file={file} remove={() => removeFile(i)} />)}
           </fieldset>}
@@ -453,9 +480,9 @@ export default function CreatePostPage() {
             className={buttonClass}
             disabled={busy}
           >
-            {uploadProgress || create.isPending
-              ? "Yayınlanıyor…"
-              : !unknown && taxonomyOrigin.current === "model" ? "Türü onayla ve yayınla" : "Gözlemi yayınla"}
+            {uploadProgress || create.isPending || update.isPending
+              ? "Kaydediliyor…"
+              : initial ? "Değişiklikleri kaydet" : !unknown && taxonomyOrigin.current === "model" ? "Türü onayla ve yayınla" : "Gözlemi yayınla"}
           </button>
         </div>
       </fieldset></form>
