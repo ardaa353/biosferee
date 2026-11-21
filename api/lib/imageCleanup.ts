@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { asc, eq, lte, sql, like, or } from "drizzle-orm";
 import { cloudImageDeletions, postImages, users } from "../../db/schema";
 import { getDb } from "../queries/connection";
-import { destroyCloudImage, isCloudinaryImageUrl, cloudPublicId, requireCloudinary } from "./cloudImages";
+import { destroyCloudImage, isCloudinaryImageUrl, cloudPublicId, requireCloudinary, cloudinaryConfigured } from "./cloudImages";
 import { log } from "./logger";
 
 type Transaction = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
@@ -85,7 +85,16 @@ export function kickCloudImageCleanup() {
 }
 
 export function startCloudImageCleanup() {
-  kickCloudImageCleanup();
+  // Missing credentials can give old site deletions a long retry delay. A restarted
+  // server with restored credentials can resume exactly those recorded deletions.
+  void (async () => {
+    await prepareImageCleanup();
+    if (cloudinaryConfigured()) await getDb().update(cloudImageDeletions).set({nextAttemptAt: new Date()}).where(or(
+      eq(cloudImageDeletions.lastError, "Cloudinary silme ayarları eksik."),
+      like(cloudImageDeletions.lastError, "Cloudinary silme/yükleme anahtarları sunucuda eksik.%"),
+    ));
+    await kickCloudImageCleanup();
+  })().catch(error => log.error("Cloud image cleanup startup failed", {error: error instanceof Error ? error.message : String(error)}));
   const timer = setInterval(kickCloudImageCleanup, 30_000);
   timer.unref();
 }

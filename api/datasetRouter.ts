@@ -170,18 +170,16 @@ export const datasetRouter = createRouter({
     });
   }),
   storageHealth: owner.query(async () => {
-    const configured = cloudinaryConfigured(); let error = "", pending = 0, failed = 0;
-    try { await probeCloudinary(); } catch (e) { error = e instanceof Error ? e.message : "Cloudinary bağlantısı kurulamadı."; }
+    const configured = cloudinaryConfigured(); let connected = false, error = "", lastError = "", nextAttemptAt: Date | null = null, pending = 0, failed = 0;
+    try { await probeCloudinary(); connected = true; } catch (e) { error = e instanceof Error ? e.message : "Cloudinary bağlantısı kurulamadı."; }
     try {
       await prepareImageCleanup();
       const [totals] = await getDb().select({pending: sql<number>`count(*)`, failed: sql<number>`sum(case when ${cloudImageDeletions.attempts}>0 then 1 else 0 end)`}).from(cloudImageDeletions);
       pending = Number(totals.pending); failed = Number(totals.failed || 0);
-      if (!error) {
-        const [last] = await getDb().select({message: cloudImageDeletions.lastError}).from(cloudImageDeletions).where(sql`${cloudImageDeletions.lastError} IS NOT NULL`).orderBy(desc(cloudImageDeletions.attempts)).limit(1);
-        error = last?.message || "";
-      }
+      const [last] = await getDb().select({message: cloudImageDeletions.lastError, nextAttemptAt: cloudImageDeletions.nextAttemptAt}).from(cloudImageDeletions).where(sql`${cloudImageDeletions.lastError} IS NOT NULL`).orderBy(desc(cloudImageDeletions.attempts)).limit(1);
+      lastError = last?.message || ""; nextAttemptAt = last?.nextAttemptAt || null;
     } catch (e) { error = e instanceof Error ? e.message : "Silme kuyruğu açılamadı."; }
-    return {configured, connected: !error, cloudName, pending, failed, error, revision: process.env.RENDER_GIT_COMMIT?.slice(0, 12) || ""};
+    return {configured, connected, cloudName, pending, failed, error, lastError, nextAttemptAt, revision: process.env.RENDER_GIT_COMMIT?.slice(0, 12) || ""};
   }),
   retryStorage: owner.mutation(async () => {
     await probeCloudinary(); await prepareImageCleanup();

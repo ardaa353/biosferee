@@ -153,6 +153,7 @@ export default function DataTransferPanel() {
       {health.data && <>
         <p className="mt-3 text-sm">Bulut {health.data.cloudName} · bekleyen {health.data.pending} · yeniden denenen {health.data.failed}</p>
         {health.data.error ? <p role="alert" className="my-3 whitespace-pre-wrap text-sm text-[#8d302a]">{health.data.error}</p> : <p className="my-3 text-sm text-[#007f24]">Cloudinary bağlantısı doğrulandı.</p>}
+        {health.data.lastError && <p className="my-3 whitespace-pre-wrap text-sm text-[#8d632a]">Önceki silme denemesi: {health.data.lastError}{health.data.nextAttemptAt && " · Otomatik yeniden deneme: " + new Date(health.data.nextAttemptAt).toLocaleString("tr-TR")}</p>}
         {!health.data.configured && <p className="mb-3 text-sm">Render Environment bölümüne CLOUDINARY_API_KEY ile CLOUDINARY_API_SECRET veya CLOUDINARY_URL ekleyip yeniden dağıtın.</p>}
         {health.data.revision && <p className="mb-3 font-mono text-xs text-[#50665d]">Sürüm {health.data.revision}</p>}
       </>}

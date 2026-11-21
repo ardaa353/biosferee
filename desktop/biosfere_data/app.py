@@ -31,6 +31,7 @@ class App(tk.Tk):
         self.images = {}
         self.current = None
         self.last_clicked = None
+        self.columns = 4
         self.events = queue.Queue()
         self.cancelled = threading.Event()
         self.busy = False
@@ -72,8 +73,9 @@ class App(tk.Tk):
         scroll.pack(side="right", fill="y")
         self.canvas.pack(side="left", fill="both", expand=True)
         self.grid_frame = ttk.Frame(self.canvas)
-        self.canvas.create_window((0, 0), window=self.grid_frame, anchor="nw")
+        self.gallery_window = self.canvas.create_window((0, 0), window=self.grid_frame, anchor="nw")
         self.grid_frame.bind("<Configure>", lambda _: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+        self.canvas.bind("<Configure>", self.resize_gallery)
         self.canvas.bind("<MouseWheel>", lambda event: self.canvas.yview_scroll(-1 if event.delta > 0 else 1, "units"))
 
         self.tree = ttk.Treeview(right, columns=("photos", "species", "state"), show="tree headings", height=6)
@@ -87,8 +89,18 @@ class App(tk.Tk):
         ttk.Button(actions, text="Gönderi grubunu kaldır", command=self.remove_group).pack(side="left")
         ttk.Button(actions, text="Bu konumu tüm gruplara uygula", command=self.copy_location).pack(side="left", padx=4)
 
-        form = ttk.Frame(right)
-        form.pack(fill="both", expand=True)
+        form_host = ttk.Frame(right)
+        form_host.pack(fill="both", expand=True)
+        form_canvas = tk.Canvas(form_host, highlightthickness=0)
+        form_scroll = ttk.Scrollbar(form_host, orient="vertical", command=form_canvas.yview)
+        form_canvas.configure(yscrollcommand=form_scroll.set)
+        form_scroll.pack(side="right", fill="y")
+        form_canvas.pack(side="left", fill="both", expand=True)
+        form = ttk.Frame(form_canvas)
+        form_window = form_canvas.create_window((0, 0), window=form, anchor="nw")
+        form.bind("<Configure>", lambda _: form_canvas.configure(scrollregion=form_canvas.bbox("all")))
+        form_canvas.bind("<Configure>", lambda event: form_canvas.itemconfigure(form_window, width=event.width))
+        form_canvas.bind("<MouseWheel>", lambda event: form_canvas.yview_scroll(-1 if event.delta > 0 else 1, "units"))
         self.entries = {}
         for index, (key, label) in enumerate(LABELS.items()):
             row, col = divmod(index, 2)
@@ -144,7 +156,7 @@ class App(tk.Tk):
         from PIL import ImageTk
         index = self.photos.index(path)
         frame = tk.Frame(self.grid_frame, width=158, height=154, borderwidth=3, relief="solid", background="white")
-        frame.grid(row=index // 4, column=index % 4, padx=4, pady=4)
+        frame.grid(row=index // self.columns, column=index % self.columns, padx=4, pady=4)
         frame.grid_propagate(False)
         picture = ImageTk.PhotoImage(image)
         image.close()
@@ -157,6 +169,13 @@ class App(tk.Tk):
             widget.bind("<Button-1>", lambda event, p=path: self.toggle_photo(p, bool(event.state & 1)))
         self.tiles[path] = (frame, label, caption)
         self.refresh_tiles()
+
+    def resize_gallery(self, event):
+        self.columns = max(1, event.width // 174)
+        self.canvas.itemconfigure(self.gallery_window, width=event.width)
+        for path, widgets in self.tiles.items():
+            index = self.photos.index(path)
+            widgets[0].grid(row=index // self.columns, column=index % self.columns, padx=4, pady=4)
 
     def toggle_photo(self, path, shift=False):
         if self.busy:
