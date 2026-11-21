@@ -19,6 +19,8 @@ if (env.isProduction) app.use("*", compress({threshold: 2048, contentTypeFilter:
 app.use("*", async (c, next) => {
   await next();
   c.header("X-Content-Type-Options", "nosniff");
+  const revision = process.env.RENDER_GIT_COMMIT;
+  if (revision) c.header("X-App-Revision", revision);
   c.header("Referrer-Policy", "strict-origin-when-cross-origin");
   if (c.req.path.startsWith("/api/trpc")) c.header("Cache-Control", "private, no-store");
 });
