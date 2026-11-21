@@ -1,0 +1,106 @@
+[
+  {
+    "path": "coral-104342d/mobilenet_v2_1.0_224_quant.tflite",
+    "url": "https://raw.githubusercontent.com/google-coral/test_data/104342d2d3480b3e66203073dac24f4e2dbb4c41/mobilenet_v2_1.0_224_quant.tflite",
+    "mirror": "https://cdn.jsdelivr.net/gh/google-coral/test_data@104342d2d3480b3e66203073dac24f4e2dbb4c41/mobilenet_v2_1.0_224_quant.tflite",
+    "bytes": 3610798,
+    "sha256": "7aad0c74c5e3c06e5eb3c827e13304fdd68a83da6087d92ee169c24ff9fd4776"
+  },
+  {
+    "path": "coral-104342d/imagenet_labels.txt",
+    "url": "https://raw.githubusercontent.com/google-coral/test_data/104342d2d3480b3e66203073dac24f4e2dbb4c41/imagenet_labels.txt",
+    "mirror": "https://cdn.jsdelivr.net/gh/google-coral/test_data@104342d2d3480b3e66203073dac24f4e2dbb4c41/imagenet_labels.txt",
+    "bytes": 21686,
+    "sha256": "b8aaeb5630c62626a7d124a05c0e14230a7ffdd2136a31d0190a4fb71c1d82f1"
+  },
+  {
+    "path": "coral-104342d/mobilenet_v2_1.0_224_inat_bird_quant.tflite",
+    "url": "https://raw.githubusercontent.com/google-coral/test_data/104342d2d3480b3e66203073dac24f4e2dbb4c41/mobilenet_v2_1.0_224_inat_bird_quant.tflite",
+    "mirror": "https://cdn.jsdelivr.net/gh/google-coral/test_data@104342d2d3480b3e66203073dac24f4e2dbb4c41/mobilenet_v2_1.0_224_inat_bird_quant.tflite",
+    "bytes": 3579500,
+    "sha256": "350fcd8cf1df1560060d464595dfed8b174b05792788052896004848d9ad04f9"
+  },
+  {
+    "path": "coral-104342d/inat_bird_labels.txt",
+    "url": "https://raw.githubusercontent.com/google-coral/test_data/104342d2d3480b3e66203073dac24f4e2dbb4c41/inat_bird_labels.txt",
+    "mirror": "https://cdn.jsdelivr.net/gh/google-coral/test_data@104342d2d3480b3e66203073dac24f4e2dbb4c41/inat_bird_labels.txt",
+    "bytes": 37146,
+    "sha256": "a16108dfe3f8daff015b87a97ab6a17e717b9b1bccd719f6d8f747746d7b9277"
+  },
+  {
+    "path": "coral-104342d/mobilenet_v2_1.0_224_inat_plant_quant.tflite",
+    "url": "https://raw.githubusercontent.com/google-coral/test_data/104342d2d3480b3e66203073dac24f4e2dbb4c41/mobilenet_v2_1.0_224_inat_plant_quant.tflite",
+    "mirror": "https://cdn.jsdelivr.net/gh/google-coral/test_data@104342d2d3480b3e66203073dac24f4e2dbb4c41/mobilenet_v2_1.0_224_inat_plant_quant.tflite",
+    "bytes": 5080439,
+    "sha256": "50edbcc050e602c0edad72c15bf6c0bcad4f0c4c287cc52408d090349839eed0"
+  },
+  {
+    "path": "coral-104342d/inat_plant_labels.txt",
+    "url": "https://raw.githubusercontent.com/google-coral/test_data/104342d2d3480b3e66203073dac24f4e2dbb4c41/inat_plant_labels.txt",
+    "mirror": "https://cdn.jsdelivr.net/gh/google-coral/test_data@104342d2d3480b3e66203073dac24f4e2dbb4c41/inat_plant_labels.txt",
+    "bytes": 78171,
+    "sha256": "53b78d1ac5808be1648520472db5d17a75a809e3bc51121887a68d9779fac257"
+  },
+  {
+    "path": "coral-104342d/mobilenet_v2_1.0_224_inat_insect_quant.tflite",
+    "url": "https://raw.githubusercontent.com/google-coral/test_data/104342d2d3480b3e66203073dac24f4e2dbb4c41/mobilenet_v2_1.0_224_inat_insect_quant.tflite",
+    "mirror": "https://cdn.jsdelivr.net/gh/google-coral/test_data@104342d2d3480b3e66203073dac24f4e2dbb4c41/mobilenet_v2_1.0_224_inat_insect_quant.tflite",
+    "bytes": 3655867,
+    "sha256": "0ebaeb474dccf56b8b818b014f0d6a8e22b35a45b491a659f0b5405c9c838282"
+  },
+  {
+    "path": "coral-104342d/inat_insect_labels.txt",
+    "url": "https://raw.githubusercontent.com/google-coral/test_data/104342d2d3480b3e66203073dac24f4e2dbb4c41/inat_insect_labels.txt",
+    "mirror": "https://cdn.jsdelivr.net/gh/google-coral/test_data@104342d2d3480b3e66203073dac24f4e2dbb4c41/inat_insect_labels.txt",
+    "bytes": 40317,
+    "sha256": "e5e03664a8a70eafc3308268eb8cd6aa28652912735bfdd45e436ae9617155bc"
+  },
+  {
+    "path": "mammals-22b0311/mammals_int8.tflite",
+    "url": "https://huggingface.co/mlgraham/species-classifier-mammals/resolve/22b0311def75a9ee77e67b084320799c727ee0fc/mammals_int8.tflite",
+    "bytes": 3025848,
+    "sha256": "1e6f7e4476af536444ac8c228a2495e80bc334fa565d926bac516214ff54d82a"
+  },
+  {
+    "path": "mammals-22b0311/labels.txt",
+    "url": "https://huggingface.co/mlgraham/species-classifier-mammals/resolve/22b0311def75a9ee77e67b084320799c727ee0fc/labels.txt",
+    "bytes": 9074,
+    "sha256": "3b5a07a5b04d209aececb7b0c606fea07030350de66ac79da75d4d23cb06ad57"
+  },
+  {
+    "path": "herps-a3aedbc/herps_int8.tflite",
+    "url": "https://huggingface.co/mlgraham/species-classifier-herps/resolve/a3aedbc988294a3bdcfcd2f4d9332ee58b85c169/herps_int8.tflite",
+    "bytes": 3331176,
+    "sha256": "6118d1508fa67d23f6d552b22cd24744c0ff63726d04b89119dafad3c33f1626"
+  },
+  {
+    "path": "herps-a3aedbc/labels.txt",
+    "url": "https://huggingface.co/mlgraham/species-classifier-herps/resolve/a3aedbc988294a3bdcfcd2f4d9332ee58b85c169/labels.txt",
+    "bytes": 19876,
+    "sha256": "d2e1946f41525223943bc07d3db16707ffe9130c296cbc603b064435624019e5"
+  },
+  {
+    "path": "arachnids-09b1934/arachnids_int8.tflite",
+    "url": "https://huggingface.co/mlgraham/species-classifier-arachnids/resolve/09b1934a68a779aa8110c34a370c3c50e19804e1/arachnids_int8.tflite",
+    "bytes": 2906864,
+    "sha256": "57320e533014e2477ced7ba15e337bd31998381bad3d69e984a51b18db0153b2"
+  },
+  {
+    "path": "arachnids-09b1934/labels.txt",
+    "url": "https://huggingface.co/mlgraham/species-classifier-arachnids/resolve/09b1934a68a779aa8110c34a370c3c50e19804e1/labels.txt",
+    "bytes": 6437,
+    "sha256": "715dcd4e448b7add5453f8e241a6c384bf58bc139b38e01aa2489dcb4e16a38a"
+  },
+  {
+    "path": "fungi-e0e8c0f/fungi_int8.tflite",
+    "url": "https://huggingface.co/mlgraham/species-classifier-fungi/resolve/e0e8c0fb22426e7a85c86e06115d77d0e8c68fea/fungi_int8.tflite",
+    "bytes": 3145688,
+    "sha256": "273797691fabff2d1d7707fade66cc6d785541f9cb09060d3c6d6fe5bd42a47f"
+  },
+  {
+    "path": "fungi-e0e8c0f/labels.txt",
+    "url": "https://huggingface.co/mlgraham/species-classifier-fungi/resolve/e0e8c0fb22426e7a85c86e06115d77d0e8c68fea/labels.txt",
+    "bytes": 13659,
+    "sha256": "b67d5357d72616fa60e37f1fdbeb1a44f6459643be384654bb754afb5b29a336"
+  }
+]

@@ -1,0 +1,11 @@
+node_modules
+dist
+.git
+.env
+.env.local
+.env.*.local
+env
+
+public/identification/assets
+**/__pycache__
+public/identification/worker.js

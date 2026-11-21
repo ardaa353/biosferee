@@ -1,3 +1,5 @@
+import { ranks } from "../contracts/taxonomy";
+import { searchCatalog } from "./lib/catalog";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { HttpBindings } from "@hono/node-server";
@@ -74,6 +76,18 @@ app.post(
   bodyLimit({ maxSize: 64 * 1024, onError: (c) => c.body(null, 413) }),
   handleClientLog,
 );
+app.get("/api/taxa", async c => {
+  const q = (c.req.query("q") ?? "").trim();
+  const rank = ranks.find(value => value === c.req.query("rank"));
+  if (!rank || (q.length < 2 && !(rank === "kingdom" && !q)) || q.length > 140) return c.json({ error: "Geçersiz katalog sorgusu." }, 400);
+  try {
+    const data = await searchCatalog(q, rank);
+    c.header("Cache-Control", "public, max-age=86400");
+    return c.json(data);
+  } catch {
+    return c.json({ error: "Kataloğa şu anda ulaşılamıyor." }, 503);
+  }
+});
 app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
 
 // Unhandled request errors must reach /tmp/kimi-logs/app.log, not just stdout:

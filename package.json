@@ -14,13 +14,15 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "prebuild": "npm run prepare:photos && node db/prepare-catalog.mjs",
+    "prepare:photos": "python3 scripts/prepare_models.py && node scripts/build-worker.mjs",
+    "predev": "npm run prepare:photos && node db/prepare-catalog.mjs"
   },
   "dependencies": {
-    "cloudinary": "^2.0.0",
-    "@ai-sdk/openai-compatible": "2.0.78",
     "@hono/node-server": "^1.14.3",
     "@hookform/resolvers": "^5.2.2",
+    "@litertjs/core": "2.6.0",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-aspect-ratio": "^1.1.8",
@@ -52,7 +54,6 @@
     "@trpc/react-query": "^11.8.1",
     "@trpc/server": "^11.8.1",
     "@types/leaflet": "^1.9.22",
-    "ai": "6.0.290",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -60,6 +61,7 @@
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.1",
     "embla-carousel-react": "^8.6.0",
+    "heic-to": "1.4.3",
     "hono": "^4.8.3",
     "input-otp": "^1.4.2",
     "leaflet": "^1.9.4",
@@ -77,6 +79,7 @@
     "sonner": "^2.0.7",
     "superjson": "^2.2.6",
     "tailwind-merge": "^3.4.0",
+    "utif": "3.1.0",
     "vaul": "^1.1.2",
     "zod": "^4.3.5"
   },
@@ -86,6 +89,7 @@
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
+    "@types/utif": "3.0.6",
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.4.23",
     "drizzle-kit": "^0.31.8",
@@ -94,7 +98,6 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
-    "kimi-plugin-inspect-react": "^1.0.3",
     "postcss": "^8.5.6",
     "prettier": "^3.7.4",
     "tailwindcss": "^3.4.19",
@@ -104,5 +107,8 @@
     "typescript-eslint": "^8.46.4",
     "vite": "^7.2.4",
     "vitest": "^4.0.16"
+  },
+  "engines": {
+    "node": ">=22.16.0"
   }
 }

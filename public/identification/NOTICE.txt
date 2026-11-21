@@ -1,0 +1,16 @@
+BioSfere görsel tanıma kaynakları
+
+Google Coral MobileNet V2 (genel ImageNet ve iNaturalist bitki, kuş, böcek modelleri), Google LLC. Apache License 2.0.
+https://github.com/google-coral/test_data/tree/104342d2d3480b3e66203073dac24f4e2dbb4c41
+https://coral.ai/models/image-classification/
+
+Memeli, sürüngen ve iki yaşamlı, örümceğimsi ve mantar modelleri, Michael Graham. Apache License 2.0. Sürümler scripts/identification-assets.json içinde sabitlenmiştir.
+https://github.com/mlgraham/species-classifiers
+https://huggingface.co/mlgraham
+
+Google AI Edge LiteRT.js 2.6.0 ve WebAssembly çalışma zamanı, Google LLC. Apache License 2.0.
+https://github.com/google-ai-edge/LiteRT/tree/main/litert/js
+
+HEIC dönüştürme için heic-to 1.4.3 (LGPL-3.0) ve TIFF için UTIF 3.1.0 (MIT) kullanılır.
+https://github.com/hoppergee/heic-to
+https://github.com/photopea/UTIF.js

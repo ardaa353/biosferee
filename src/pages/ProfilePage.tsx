@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef, type FormEvent } from "react";
+import { preparePhoto, photoAccept } from "@/lib/photos";
+import { uploadPreparedPhoto, type UploadedPhoto } from "@/lib/cloudinary";
+import { useState, useRef, type FormEvent } from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import { Camera, Check, Settings, LogOut, Trash2, ShieldCheck } from "lucide-react";
 import { trpc } from "@/providers/trpc";
@@ -19,12 +21,15 @@ export default function ProfilePage() {
   const [editing, setEditing] = useState(false); 
   const [bio, setBio] = useState(""); 
   
-  const [avatarUrl, setAvatarUrl] = useState<string | undefined>();
+  const [avatar, setAvatar] = useState<UploadedPhoto>();
+  const [avatarStatus, setAvatarStatus] = useState("");
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const photoInput = useRef<HTMLInputElement>(null);
   
   const update = trpc.biosfere.users.updateProfile.useMutation({ 
     onSuccess: () => { 
       setEditing(false); 
-      setAvatarUrl(undefined); 
+      setAvatar(undefined); setAvatarStatus("");
       users.refetch(); 
       posts.refetch(); 
       refresh(); 
@@ -39,26 +44,16 @@ export default function ProfilePage() {
     }
   });
   
-  const widgetRef = useRef<any>(null);
-
-  useEffect(() => {
-    if ("cloudinary" in window) {
-      widgetRef.current = (window as any).cloudinary.createUploadWidget(
-        {
-          cloudName: import.meta.env.VITE_CLOUDINARY_CLOUD_NAME,
-          uploadPreset: import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET,
-          multiple: false, 
-          clientAllowedFormats: ["jpeg", "png", "webp", "gif"],
-          maxFileSize: 5000000 
-        },
-        (error: any, result: any) => {
-          if (!error && result && result.event === "success") {
-            setAvatarUrl(result.info.secure_url);
-          }
-        }
-      );
-    }
-  }, []);
+  async function chooseAvatar(file?: File) {
+    if (!file) return;
+    setAvatarBusy(true);
+    setAvatarStatus("Fotoğraf hazırlanıyor…");
+    try {
+      setAvatar(await uploadPreparedPhoto(await preparePhoto(file, 1024)));
+      setAvatarStatus("Fotoğraf hazır. Uygulamak için kaydet.");
+    } catch (error) { setAvatarStatus(errorMessage(error)); }
+    finally { setAvatarBusy(false); }
+  }
 
   if (users.isLoading || posts.isLoading) return <Loading />;
   if (!profile) return <Empty title="Kullanıcı bulunamadı" text="Bu profil bağlantısı geçersiz olabilir." />;
@@ -72,11 +67,7 @@ export default function ProfilePage() {
     e.preventDefault(); 
     update.mutate({ 
       bio, 
-      avatar: avatarUrl ? { 
-        name: "cloudinary_profile.jpg", 
-        contentType: "image/jpeg", 
-        contentBase64: avatarUrl 
-      } : undefined 
+      avatar,
     }); 
   }
   
@@ -141,22 +132,21 @@ export default function ProfilePage() {
               <textarea className={inputClass} value={bio} onChange={(e) => setBio(e.target.value)} required />
             </Field>
     
-            <Field label="Yeni profil fotoğrafı">
-              <button 
-                type="button" 
-                onClick={() => widgetRef.current?.open()} 
-                className="flex min-h-20 w-full cursor-pointer items-center justify-center gap-3 rounded-lg border border-dashed border-[#007f24]/35 bg-[#85c093]/10 p-3 text-sm transition hover:bg-[#85c093]/20"
-              >
-                <Camera size={20} className="text-[#007f24]" />
-                {avatarUrl ? "Fotoğraf Yüklendi ✅ (Değiştirmek için tıkla)" : "Cloudinary'den Fotoğraf Seç"}
-              </button>
-            </Field>
+            <div>
+              <p className="mb-2 text-sm font-semibold">Yeni profil fotoğrafı</p>
+              <input hidden type="file" ref={photoInput} accept={photoAccept} onChange={e => {
+                const file = e.target.files?.[0]; e.target.value = ""; void chooseAvatar(file);
+              }} />
+              <button type="button" className={secondaryButton} disabled={avatarBusy || update.isPending}
+                onClick={() => photoInput.current?.click()}><Camera size={18} />Fotoğraf seç</button>
+              {avatarStatus && <p role="status" className="mt-2 text-sm">{avatarStatus}</p>}
+            </div>
           </div>
           
           {update.error && <p className="mt-3 text-sm text-[#8d302a]">{errorMessage(update.error)}</p>}
           
           <div className="mt-4 flex flex-wrap gap-2 justify-between">
-            <button type="submit" className={`${buttonClass}`} disabled={update.isPending}>
+            <button type="submit" className={`${buttonClass}`} disabled={update.isPending || avatarBusy}>
               <Check size={16} />{update.isPending ? "Kaydediliyor…" : "Değişiklikleri kaydet"}
             </button>
             
@@ -165,7 +155,7 @@ export default function ProfilePage() {
               type="button"
               onClick={() => {
                 if (window.confirm("Hesabını kalıcı olarak silmek istediğine emin misin? Bu işlem geri alınamaz ve tüm fotoğrafların/verilerin silinir!")) {
-                  deleteAccount.mutate({ userId: current.id });
+                  if (current) deleteAccount.mutate({ userId: current.id });
                 }
               }}
               className="px-4 py-2 text-sm font-semibold text-[#a63f36] hover:bg-[#a63f36]/10 rounded-full transition-colors flex items-center gap-2"

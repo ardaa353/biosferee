@@ -1,0 +1,45 @@
+import { useEffect, useState } from "react";
+import { Field, inputClass } from "./BioUI";
+import { catalogSearch } from "@/lib/catalog";
+import { ranks, rankLabels, type Rank, type Taxonomy, type TaxonHit, type CatalogResponse } from "@contracts/taxonomy";
+
+export function TaxonomyFields({ value, edit, select }: { value: Taxonomy; edit: (key: keyof Taxonomy, text: string) => void; select: (hit: TaxonHit) => void }) {
+  const [active, setActive] = useState<Rank | null>(null);
+  const [data, setData] = useState<CatalogResponse | null>(null);
+  const [state, setState] = useState("");
+  const term = active ? value[active].trim() : "";
+  const searchable = term.length >= 2 || (active === "kingdom" && !term);
+  useEffect(() => {
+    if (!active || !searchable) return;
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setData(null); setState("Katalog aranıyor…");
+      try {
+        const found = await catalogSearch(term, active, controller.signal);
+        if (!controller.signal.aborted) { setData(found); setState(found.results.length ? "" : "Eşleşme bulunamadı. Yazdığın adı kullanabilirsin."); }
+      } catch { if (!controller.signal.aborted) setState("Katalog şu anda açılamıyor. Elle giriş yapabilirsin."); }
+    }, 250);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [active, term, searchable]);
+  return <div className="grid items-start gap-4 sm:grid-cols-2">
+    {([...ranks, "commonName"] as const).map(key =>
+      <div key={key} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setActive(null); }}
+        onKeyDown={e => { if (e.key === "Escape") setActive(null); }}>
+        <Field label={rankLabels[key] + (key === "species" ? " *" : "")}>
+          <input className={inputClass} value={value[key]} required={key === "species"} autoComplete="off"
+            maxLength={key === "species" || key === "commonName" ? 200 : key === "kingdom" ? 100 : 150}
+            onFocus={() => { setData(null); setState(""); setActive(key === "commonName" ? null : key); }}
+            onChange={e => { setData(null); setState(""); setActive(key === "commonName" ? null : key); edit(key, e.target.value); }} />
+        </Field>
+        {active === key && searchable && <div className="mt-1 rounded-lg bg-[#f1f6f0] text-sm">
+          {state && <p role="status" className="px-3 py-2 text-xs">{state}</p>}
+          {data && data.results.length > 0 && <><p className="px-3 pt-2 text-xs text-[#50665d]">{data.source}</p>
+            <ul className="max-h-52 overflow-auto p-1">{data.results.map(hit =>
+              <li key={hit.id}><button type="button" className="w-full rounded-md px-2 py-2 text-left hover:bg-white focus:bg-white"
+                onClick={() => { setActive(null); select(hit); }}>
+                <i>{hit.name}</i>{hit.taxonomy.commonName && <span> · {hit.taxonomy.commonName}</span>} <small>{[hit.taxonomy.kingdom, hit.taxonomy.family].filter(Boolean).join(" · ")}</small>
+              </button></li>)}</ul></>}
+        </div>}
+      </div>)}
+  </div>;
+}

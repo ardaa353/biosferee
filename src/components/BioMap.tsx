@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -18,27 +18,20 @@ const defaultIcon = L.icon({
   shadowSize: [41, 41]
 });
 
-function ChangeView({ center }: { center: [number, number] }) { 
-  const map = useMap(); 
-  map.setView(center, map.getZoom()); 
-  return null; 
+function LocationEvents({ lat, lng, onChange }: {lat: number; lng: number; onChange: (lat: number, lng: number) => void}) {
+  const map = useMap();
+  useEffect(() => {
+    if (Number.isFinite(lat) && Number.isFinite(lng)) map.setView([lat, lng], map.getZoom());
+  }, [lat, lng, map]);
+  useMapEvents({ click(e) { onChange(Number(e.latlng.lat.toFixed(6)), Number(e.latlng.lng.toFixed(6))); } });
+  return null;
 }
 
 export function LocationPicker({ lat, lng, onChange }: { lat: number; lng: number; onChange: (lat: number, lng: number) => void }) {
-  function ClickHandler() { 
-    useMapEvents({ 
-      click(e) { 
-        onChange(Number(e.latlng.lat.toFixed(6)), Number(e.latlng.lng.toFixed(6))); 
-      } 
-    }); 
-    return null; 
-  }
-
   return (
     <MapContainer center={[lat, lng]} zoom={6} scrollWheelZoom className="z-0 h-64 w-full rounded-xl">
       <TileLayer attribution='Esri, DeLorme, NAVTEQ &copy; OpenStreetMap katkıcıları' url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}" />
-      <ChangeView center={[lat, lng]} />
-      <ClickHandler />
+      <LocationEvents lat={lat} lng={lng} onChange={onChange} />
       <Marker position={[lat, lng]} icon={defaultIcon} />
     </MapContainer>
   );
@@ -54,7 +47,7 @@ export default function BioMap({ posts }: { posts: BioPost[] }) {
         <Marker key={post.id} position={[post.lat, post.lng]} icon={defaultIcon}>
           <Popup>
             <div className="min-w-44">
-              <p className="font-serif text-lg font-semibold">{post.commonName ?? "Türü bilinmiyor"}</p>
+              <p className="font-serif text-lg font-semibold">{post.commonName || post.species || "Türü bilinmiyor"}</p>
               <p className="mt-1 text-xs">{post.locality}, {post.city}</p>
               <p className="text-xs italic">{post.species}</p>
               <Link to={`/gonderi/${post.id}`} className="mt-2 inline-block font-semibold text-[#007f24] underline">Gönderiye git</Link>

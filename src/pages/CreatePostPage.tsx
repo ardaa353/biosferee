@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router";
-import { Crosshair, ImagePlus, X } from "lucide-react";
+import { Crosshair, ImagePlus } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/lib/auth";
-import { emptyTaxonomy } from "@/lib/types";
+import { emptyTaxonomy, type Taxonomy } from "@contracts/taxonomy";
 import { errorMessage } from "@/lib/utils";
-import { uploadToCloudinary } from "@/lib/cloudinary";
+import { uploadPreparedPhoto, type UploadedPhoto } from "@/lib/cloudinary";
+import { photoAccept, preparePhoto } from "@/lib/photos";
+import { SpeciesAssistant } from "@/components/SpeciesAssistant";
+import { TaxonomyFields } from "@/components/TaxonomyFields";
+import { PhotoThumb } from "@/components/PhotoThumb";
 import {
   Field,
   PageHeading,
@@ -14,27 +18,6 @@ import {
   secondaryButton,
 } from "@/components/BioUI";
 import { LocationPicker } from "@/components/BioMap";
-
-const MAX_IMAGES = 8;
-const MAX_FILE_SIZE = 12 * 1024 * 1024;
-
-const ALLOWED_IMAGE_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-];
-
-const taxLabels: [keyof typeof emptyTaxonomy, string][] = [
-  ["kingdom", "Alem"],
-  ["phylum", "Şube"],
-  ["className", "Sınıf"],
-  ["orderName", "Takım"],
-  ["family", "Familya"],
-  ["genus", "Cins"],
-  ["species", "Bilimsel tür adı"],
-  ["commonName", "Türkçe yaygın ad"],
-];
 
 export default function CreatePostPage() {
   const { user } = useAuth();
@@ -46,11 +29,35 @@ export default function CreatePostPage() {
   );
 
   const [tax, setTax] = useState(emptyTaxonomy);
+  const taxonomyOrigin = useRef<"empty" | "model" | "manual">("empty");
+  const applyAutomatic = useCallback((value: Taxonomy) => {
+    if (taxonomyOrigin.current !== "manual") {
+      taxonomyOrigin.current = "model";
+      setTax(value);
+    }
+  }, []);
+  function selectTaxonomy(value: Taxonomy) {
+    taxonomyOrigin.current = "manual";
+    setTax(value);
+  }
+  function resetAutomatic() {
+    if (taxonomyOrigin.current === "model") {
+      taxonomyOrigin.current = "empty";
+      setTax(emptyTaxonomy);
+    }
+  }
   const [description, setDescription] = useState("");
   const [city, setCity] = useState("");
   const [locality, setLocality] = useState("");
   const [lat, setLat] = useState(39.0);
   const [lng, setLng] = useState(35.0);
+  const [hasLocation, setHasLocation] = useState(false);
+  const [preparing, setPreparing] = useState("");
+  const [fileIssues, setFileIssues] = useState<string[]>([]);
+  const preparingRef = useRef(false);
+  const submitting = useRef(false);
+  const addressRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => addressRequest.current?.abort(), []);
   const [files, setFiles] = useState<File[]>([]);
   const [collaboratorIds, setCollaboratorIds] = useState<number[]>([]);
   const [collaboratorSearch, setCollaboratorSearch] = useState(""); // YENİ: Arama çubuğu için state
@@ -60,84 +67,35 @@ export default function CreatePostPage() {
   const users = trpc.biosfere.users.list.useQuery();
   const create = trpc.biosfere.posts.create.useMutation();
 
-  // Önizleme adresleri yalnızca tarayıcıda kullanılır.
-  // Bu adresler dosyaları sunucuya veya yerel klasöre kaydetmez.
-  const previews = useMemo(
-    () =>
-      files.map((file) => ({
-        name: file.name,
-        url: URL.createObjectURL(file),
-      })),
-    [files]
-  );
-
-  // Önizleme adreslerini bileşen güncellendiğinde temizle.
-  useEffect(() => {
-    return () => {
-      previews.forEach((preview) => {
-        URL.revokeObjectURL(preview.url);
-      });
-    };
-  }, [previews]);
-
-  function handleFileChange(
-    event: React.ChangeEvent<HTMLInputElement>
-  ) {
-    setError("");
-
-    const selectedFiles = Array.from(event.target.files ?? []);
+  const busy = Boolean(uploadProgress || preparing) || create.isPending;
+  async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(event.target.files ?? []);
     event.target.value = "";
-
-    if (selectedFiles.length === 0) return;
-
-    const remainingSlots = MAX_IMAGES - files.length;
-
-    if (remainingSlots <= 0) {
-      setError(`En fazla ${MAX_IMAGES} fotoğraf ekleyebilirsin.`);
-      return;
-    }
-
-    const validFiles: File[] = [];
-
-    for (const file of selectedFiles) {
-      if (files.length + validFiles.length >= MAX_IMAGES) {
-        setError(`En fazla ${MAX_IMAGES} fotoğraf ekleyebilirsin.`);
-        break;
+    if (!selected.length || preparingRef.current || submitting.current) return;
+    preparingRef.current = true;
+    setError("");
+    setFileIssues([]);
+    const ready: File[] = [], issues: string[] = [];
+    try {
+      for (const [index, file] of selected.entries()) {
+        setPreparing("Fotoğraflar hazırlanıyor… " + (index + 1) + "/" + selected.length);
+        try { ready.push(await preparePhoto(file)); }
+        catch (cause) { issues.push(file.name + " — " + errorMessage(cause)); }
       }
-
-      if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-        setError(
-          `${file.name}: Yalnızca JPEG, PNG, WebP veya GIF yükleyebilirsin.`
-        );
-        continue;
-      }
-
-      if (file.size > MAX_FILE_SIZE) {
-        setError(`${file.name}: Fotoğraf en fazla 12 MB olabilir.`);
-        continue;
-      }
-
-      validFiles.push(file);
-    }
-
-    if (validFiles.length > 0) {
-      setFiles((current) =>
-        [...current, ...validFiles].slice(0, MAX_IMAGES)
-      );
-    }
+      if (ready.length) { resetAutomatic(); setFiles(current => [...current, ...ready]); }
+      setFileIssues(issues);
+    } finally { preparingRef.current = false; setPreparing(""); }
   }
 
-  function removeFile(indexToRemove: number) {
-    setFiles((current) =>
-      current.filter((_, index) => index !== indexToRemove)
-    );
+  function removeFile(index: number) {
+    resetAutomatic(); setFiles(current => current.filter((_, i) => i !== index));
     setError("");
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (preparingRef.current || submitting.current) return;
     setError("");
-    setUploadProgress("");
 
     if (files.length === 0) {
       setError("Lütfen en az bir fotoğraf seç.");
@@ -166,25 +124,14 @@ export default function CreatePostPage() {
       return;
     }
 
+    submitting.current = true;
     try {
-      // 1. Fotoğrafları doğrudan Cloudinary'ye yükle.
-      setUploadProgress("Fotoğraflar buluta yükleniyor…");
-
-      const images = await Promise.all(
-        files.map(async (file) => {
-          const cloudinaryUrl = await uploadToCloudinary(file);
-
-          return {
-            name: file.name,
-            contentType: file.type,
-            contentBase64: cloudinaryUrl,
-          };
-        })
-      );
-
-      // 2. Veritabanına fotoğraf dosyalarını değil, Cloudinary adreslerini gönder.
-      setUploadProgress("Gözlem kaydı oluşturuluyor…");
-
+      const images: UploadedPhoto[] = [];
+      for (const [index, file] of files.entries()) {
+        setUploadProgress("Fotoğraflar yükleniyor… " + (index + 1) + "/" + files.length);
+        images.push(await uploadPreparedPhoto(file));
+      }
+      setUploadProgress("Gözlem kaydediliyor…");
       const result = await create.mutateAsync({
         description: description.trim(),
         unknown,
@@ -202,6 +149,7 @@ export default function CreatePostPage() {
     } catch (err) {
       setError(errorMessage(err));
     } finally {
+      submitting.current = false;
       setUploadProgress("");
     }
   }
@@ -214,6 +162,7 @@ export default function CreatePostPage() {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        setHasLocation(true);
         setLat(position.coords.latitude);
         setLng(position.coords.longitude);
         fetchAddress(position.coords.latitude, position.coords.longitude); // GPS ile de adresi çek
@@ -233,13 +182,16 @@ export default function CreatePostPage() {
 
   // YENİ: Enlem ve boylamdan adresi otomatik bulan fonksiyon
   async function fetchAddress(latitude: number, longitude: number) {
+    addressRequest.current?.abort();
+    const controller = new AbortController();
+    addressRequest.current = controller;
     try {
       const response = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=tr`, { signal: controller.signal }
       );
       const data = await response.json();
 
-      if (data && data.address) {
+      if (!controller.signal.aborted && data?.address) {
         // Gelen veriye göre Şehir ve İlçe/Köy bilgilerini ayıkla
         const foundCity = data.address.city || data.address.province || data.address.state || "";
         const foundLocality = data.address.town || data.address.village || data.address.suburb || data.address.county || "";
@@ -247,9 +199,7 @@ export default function CreatePostPage() {
         if (foundCity) setCity(foundCity);
         if (foundLocality) setLocality(foundLocality);
       }
-    } catch (error) {
-      console.error("Konum bilgisi otomatik alınamadı:", error);
-    }
+    } catch { /* Yer adları elle girilebilir. */ }
   }
 
   return (
@@ -260,7 +210,7 @@ export default function CreatePostPage() {
         description="Fotoğrafları, konumu ve biyolojik notları ekleyin. Kayıt tarihi ve mevsimi sistem tarafından otomatik eklenir."
       />
 
-      <form onSubmit={submit} className="space-y-9">
+      <form onSubmit={submit}><fieldset className="min-w-0 space-y-9" disabled={Boolean(uploadProgress) || create.isPending}>
         {/* Tür bilgisi */}
         <section>
           <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#a96d15]/30 bg-[#f2e5c9]/60 p-4">
@@ -284,130 +234,36 @@ export default function CreatePostPage() {
           </label>
         </section>
 
-        {/* Taksonomi */}
-        {!unknown && (
-          <section>
-            <h2 className="mb-4 font-serif text-2xl">
-              01 / Sistematik bilgiler
-            </h2>
-
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              {taxLabels.map(([key, label]) => (
-                <Field key={key} label={`${label} *`}>
-                  {key === "kingdom" ? (
-                    <select
-                      className={inputClass}
-                      value={tax[key]}
-                      onChange={(event) =>
-                        setTax({
-                          ...tax,
-                          [key]: event.target.value,
-                        })
-                      }
-                    >
-                      {[
-                        "Animalia",
-                        "Plantae",
-                        "Fungi",
-                        "Protista",
-                        "Bacteria",
-                        "Archaea",
-                      ].map((kingdom) => (
-                        <option key={kingdom} value={kingdom}>
-                          {kingdom}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      className={inputClass}
-                      value={tax[key]}
-                      onChange={(event) =>
-                        setTax({
-                          ...tax,
-                          [key]: event.target.value,
-                        })
-                      }
-                      required
-                    />
-                  )}
-                </Field>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Fotoğraflar */}
         <section>
-          <h2 className="mb-4 font-serif text-2xl">
-            {unknown ? "01" : "02"} / Fotoğraflar
-          </h2>
-
-          <label className="flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-xl border border-dashed border-[#007f24]/45 bg-[#85c093]/10 p-6 text-center transition hover:bg-[#85c093]/20">
-            <ImagePlus className="mb-2 text-[#007f24]" />
-
-            <strong className="text-sm">Fotoğraf seç</strong>
-
-            <span className="mt-1 text-xs text-[#5f7169]">
-              En fazla 8 fotoğraf · her biri en fazla 12 MB
-            </span>
-
-            <span className="mt-1 text-xs text-[#5f7169]">
-              Fotoğraflar doğrudan bulut depolamasına yüklenir.
-            </span>
-
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
-              multiple
-              className="sr-only"
-              onChange={handleFileChange}
-              disabled={create.isPending}
-            />
+          <h2 className="mb-3 font-serif text-2xl">Fotoğraflar</h2>
+          <label className="flex min-h-28 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-[#007f24]/45 bg-[#85c093]/10 p-5 text-center focus-within:ring-2 focus-within:ring-[#007f24]">
+            <ImagePlus className="text-[#007f24]" />
+            <strong className="text-sm">{files.length ? "Başka fotoğraf ekle" : "Fotoğraf seç"}</strong>
+            <span className="text-xs text-[#50665d]">Birden fazla fotoğraf seçebilirsin. Büyük görseller cihazında küçültülür.</span>
+            <input type="file" accept={photoAccept} multiple className="sr-only" onChange={handleFileChange} disabled={busy} />
           </label>
-
-          {previews.length > 0 && (
-            <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-4">
-              {previews.map((preview, index) => (
-                <div
-                  key={`${preview.name}-${index}`}
-                  className="relative aspect-square overflow-hidden rounded-lg"
-                >
-                  <img
-                    src={preview.url}
-                    alt={preview.name}
-                    className="h-full w-full object-cover"
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => removeFile(index)}
-                    disabled={create.isPending}
-                    className="absolute right-1 top-1 grid h-8 w-8 place-items-center rounded-full bg-[#f7f7f7] disabled:opacity-50"
-                    aria-label="Fotoğrafı kaldır"
-                  >
-                    <X size={15} />
-                  </button>
-
-                  <span className="absolute bottom-0 left-0 right-0 truncate bg-black/60 px-2 py-1 text-xs text-white">
-                    {preview.name}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <p className="mt-2 text-xs text-[#5f7169]">
-            Seçim sırasında görünen önizlemeler geçicidir. Kalıcı
-            fotoğraflar Cloudinary üzerinde tutulur.
-          </p>
+          {preparing && <p className="mt-2 text-sm" role="status">{preparing}</p>}
+          {fileIssues.length > 0 && <ul role="alert" className="mt-2 text-sm text-[#8d302a]">{fileIssues.map((m,i) => <li key={i}>{m}</li>)}</ul>}
+          {files.length > 0 && <fieldset disabled={busy} className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5">
+            {files.map((file, i) => <PhotoThumb key={file.name + "/" + file.lastModified + "/" + i} file={file} remove={() => removeFile(i)} />)}
+          </fieldset>}
         </section>
+
+        {!unknown && <section>
+          <h2 className="mb-3 font-serif text-2xl">Sistematik bilgiler</h2>
+          <SpeciesAssistant files={files} location={hasLocation ? { lat, lng } : null}
+            onAutomatic={applyAutomatic} onChoose={selectTaxonomy} />
+          <p className="mb-3 text-sm text-[#50665d]">Katalogda aramak için bilimsel adın en az iki harfini yaz. Bir takson seçtiğinde üst basamakları doldurulur.</p>
+          <TaxonomyFields value={tax} select={hit => selectTaxonomy(hit.taxonomy)} edit={(key, value) => {
+            taxonomyOrigin.current = "manual"; setTax(current => ({ ...current, [key]: value }));
+          }} />
+        </section>}
 
         {/* Konum */}
         <section>
           <div className="mb-4 flex items-end justify-between">
             <h2 className="font-serif text-2xl">
-              {unknown ? "02" : "03"} / Konum
+              Konum
             </h2>
 
             <button
@@ -447,6 +303,7 @@ export default function CreatePostPage() {
             lat={lat}
             lng={lng}
             onChange={(latitude, longitude) => {
+              setHasLocation(true);
               setLat(latitude);
               setLng(longitude);
               fetchAddress(latitude, longitude); 
@@ -460,7 +317,7 @@ export default function CreatePostPage() {
                 type="number"
                 step="any"
                 value={lat}
-                onChange={(event) => setLat(Number(event.target.value))}
+                onChange={(event) => { setHasLocation(true); setLat(Number(event.target.value)); }}
                 required
               />
             </Field>
@@ -471,7 +328,7 @@ export default function CreatePostPage() {
                 type="number"
                 step="any"
                 value={lng}
-                onChange={(event) => setLng(Number(event.target.value))}
+                onChange={(event) => { setHasLocation(true); setLng(Number(event.target.value)); }}
                 required
               />
             </Field>
@@ -481,7 +338,7 @@ export default function CreatePostPage() {
         {/* Ortak çalışma */}
         <section>
           <h2 className="mb-4 font-serif text-2xl">
-            {unknown ? "03" : "04"} / Ortak çalışma
+            Ortak çalışma
           </h2>
 
           <p className="mb-3 text-sm text-[#5f7169]">
@@ -493,7 +350,7 @@ export default function CreatePostPage() {
           <input
             type="text"
             className={`${inputClass} mb-3 w-full`}
-            placeholder="İsim, soyisim, kullanıcı adı veya mail ile ara..."
+            placeholder="Ad, soyad veya kullanıcı adıyla ara"
             value={collaboratorSearch}
             onChange={(e) => setCollaboratorSearch(e.target.value)}
           />
@@ -507,9 +364,9 @@ export default function CreatePostPage() {
                 const term = collaboratorSearch.toLowerCase();
                 const fullName = `${person.firstName} ${person.lastName}`.toLowerCase();
                 const username = person.username.toLowerCase();
-                const email = (person as any).email?.toLowerCase() || "";
+
                 
-                return fullName.includes(term) || username.includes(term) || email.includes(term);
+                return fullName.includes(term) || username.includes(term);
               })
               .map((person) => (
                 <label
@@ -544,7 +401,7 @@ export default function CreatePostPage() {
         {/* Gözlem notları */}
         <section>
           <h2 className="mb-4 font-serif text-2xl">
-            {unknown ? "04" : "05"} / Gözlem notları
+            Gözlem notları
           </h2>
 
           <Field label="Tür ve gözlem hakkında bilgilendirme *">
@@ -586,7 +443,7 @@ export default function CreatePostPage() {
             type="button"
             onClick={() => navigate(-1)}
             className={secondaryButton}
-            disabled={create.isPending}
+            disabled={busy}
           >
             Vazgeç
           </button>
@@ -594,14 +451,14 @@ export default function CreatePostPage() {
           <button
             type="submit"
             className={buttonClass}
-            disabled={create.isPending}
+            disabled={busy}
           >
-            {create.isPending
-              ? "Fotoğraflar ve kayıt yükleniyor…"
-              : "Gözlemi yayınla"}
+            {uploadProgress || create.isPending
+              ? "Yayınlanıyor…"
+              : !unknown && taxonomyOrigin.current === "model" ? "Türü onayla ve yayınla" : "Gözlemi yayınla"}
           </button>
         </div>
-      </form>
+      </fieldset></form>
     </div>
   );
 }

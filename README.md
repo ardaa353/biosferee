@@ -1,73 +1,23 @@
-# React + TypeScript + Vite
+# BioSfere
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+BioSfere, canlı gözlemlerini fotoğraflar, konum ve bilimsel sınıflandırmayla paylaşmak için kullanılan bir saha kayıt uygulamasıdır.
 
-Currently, two official plugins are available:
+## Render
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+Node.js 24 kullanın. Yerel ve Render Native kurulumunda derleme komutu `npm ci --include=dev && npm run build`, başlatma komutu `npm start` şeklindedir. Docker dağıtımı için depodaki Dockerfile aynı derlemeyi çalıştırır. Uygulama Render’ın verdiği `PORT` değerini kullanır.
 
-## React Compiler
+Mevcut MySQL bağlantısı `DATABASE_URL` ile ayarlanır. Fotoğraf yüklemelerinde `VITE_CLOUDINARY_CLOUD_NAME` ve `VITE_CLOUDINARY_UPLOAD_PRESET` kullanılır. İstemciye açık olan bu iki değer derleme sırasında okunur. Sunucuda aynı bulut için `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` ve `CLOUDINARY_API_SECRET` değişkenleri fotoğraf silme işlemlerini sağlar. Özel anahtarları Render’ın Environment bölümünde saklayın.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Fotoğraflar
 
-## Expanding the ESLint configuration
+Gözlem ve profil fotoğrafları cihazda hazırlanıp doğrudan Cloudinary’ye yüklenir. Büyük görüntüler orantılı biçimde küçültülür. Gözlem görsellerinde uzun kenar en çok 3840 piksel, profilde 1024 pikseldir. Tarayıcının doğrudan okuyabildiği formatlara ek olarak HEIC/HEIF ve TIFF için gerektiğinde ek bir çözücü yüklenir. Uyumlu kamera RAW dosyalarında gömülü JPEG önizlemesi kullanılır. Yeniden kodlanması gereken hareketli dosyaların ilk karesi saklanır. Özgün RAW arşivleme ayrı bir işlemdir. Depolama hesabının kotası geçerlidir.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Tür kataloğu ve fotoğraftan öneri
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+Catalogue of Life’ın 16 Ekim 2026 XR sürümü 2.504.814 tür düzeyinde kayıt içerir. Render derlemesi sabit sürümün arşivini indirir, SHA-256 özetini doğrular ve yaklaşık 266 MiB boyutunda bir SQLite indeksi üretir. Çalışan uygulama bu yerel indekste bilimsel adları, eş adları ve katalogda bulunan Türkçe adları arar. Bir sonucu seçmek üst basamakları doldurur. Kaynakta bulunmayan basamaklar elle tamamlanabilir. [Katalog ve veri lisansı](db/CATALOGUE.md)
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+Sekiz görüntü modeli cihazın işlemcisinde bir Web Worker içinde çalışır. Bir genel model gözlemde görülen canlı grubunu belirler. Bitki, kuş, böcek, memeli, sürüngen ve iki yaşamlı, örümceğimsi ve mantar modelleri yalnızca ilgili fotoğraflar için açılır. Modeller sunucudan indirilir ve tarayıcı tarafından önbelleğe alınır. Tanıma için API anahtarı veya tahmin başına ücret yoktur. Model kapsamı katalogdan daha dardır. Güçlü ve katalogdaki bir türle eşleşen tahmin boş formu doldurabilir. Kullanıcının yaptığı düzenlemeler korunur. Konum seçildiğinde, 100 km içinde aynı tür için BioSfere gözlemi varsa adayın yanında görünür. [Model kaynakları ve lisanslar](public/identification/NOTICE.txt)
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## Doğrulama
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+`npm run check` TypeScript denetimini, `npm test` regresyon testlerini çalıştırır. Geliştirme sunucusu `npm run dev` ile açılır. Yerel kataloğu ilk geliştirme oturumundan önce hazırlamak için `npm run prebuild` kullanılabilir.

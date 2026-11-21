@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, between, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { v2 as cloudinary } from "cloudinary";
+import { destroyCloudImage, isCloudinaryImageUrl } from "./lib/cloudImages";
 
 import {
   createRouter,
@@ -21,25 +21,6 @@ import {
   suggestions,
   reports,
 } from "../db/schema";
-
-// ---------------------------------------------------------
-// CLOUDINARY AYARLARI
-// ---------------------------------------------------------
-
-const CLOUDINARY_CLOUD_NAME =
-  process.env.CLOUDINARY_CLOUD_NAME ||
-  process.env.VITE_CLOUDINARY_CLOUD_NAME ||
-  "whjqcubr";
-
-cloudinary.config({
-  cloud_name: CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
-// ---------------------------------------------------------
-// TAKSONOMİ ŞEMALARI
-// ---------------------------------------------------------
 
 const taxonomyFields = {
   kingdom: z.string().trim().max(100).optional(),
@@ -68,28 +49,8 @@ const imageInput = z.object({
   contentType: z
     .string()
     .regex(/^image\/(jpeg|png|webp|gif)$/),
-  contentBase64: z.string().url().max(2048),
+  contentBase64: z.string().url().max(512),
 });
-
-// ---------------------------------------------------------
-// CLOUDINARY URL DOĞRULAMA
-// ---------------------------------------------------------
-
-function isCloudinaryImageUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-
-    if (url.protocol !== "https:") return false;
-    if (url.hostname !== "res.cloudinary.com") return false;
-    if (url.username || url.password) return false;
-
-    const expectedPrefix = `/${CLOUDINARY_CLOUD_NAME}/image/upload/`;
-
-    return url.pathname.startsWith(expectedPrefix);
-  } catch {
-    return false;
-  }
-}
 
 // ---------------------------------------------------------
 // ŞİFRE İŞLEMLERİ
@@ -152,75 +113,52 @@ async function createSession(userId: number) {
   return token;
 }
 
-async function enrichUsers(rows: (typeof users.$inferSelect)[]) {
-  const db = getDb();
-  const allLikes = await db.select({ postId: likes.postId }).from(likes);
-  const allPosts = await db.select({ id: posts.id, authorId: posts.authorId }).from(posts);
-
-  return rows.map((user) => ({
-    ...safeUser(user),
-    avatarUrl: user.avatarKey || undefined,
-    reputation: allLikes.filter((like) =>
-      allPosts.some((post) => post.id === like.postId && post.authorId === user.id)
-    ).length,
-  }));
+async function reputations(ids: number[]) {
+  if (!ids.length) return new Map<number, number>();
+  const rows = await getDb().select({ id: posts.authorId, total: sql<number>`count(*)` })
+    .from(likes).innerJoin(posts, eq(likes.postId, posts.id)).where(inArray(posts.authorId, ids)).groupBy(posts.authorId);
+  return new Map(rows.map(row => [row.id, Number(row.total)]));
 }
 
-// ---------------------------------------------------------
-// GÖNDERİLERİ LİSTELEME
-// ---------------------------------------------------------
+async function enrichUsers(rows: (typeof users.$inferSelect)[]) {
+  const rep = await reputations(rows.map(user => user.id));
+  return rows.map(user => ({ ...safeUser(user), avatarUrl: user.avatarKey || undefined, reputation: rep.get(user.id) ?? 0 }));
+}
 
-async function listPosts(viewerId?: number) {
-  const db = getDb();
-  const rows = await db
-    .select({ post: posts, author: users })
-    .from(posts)
-    .innerJoin(users, eq(users.id, posts.authorId))
-    .orderBy(desc(posts.createdAt));
-
-  if (!rows.length) return [];
-
-  const ids = rows.map((row) => row.post.id);
-
-  const [imageRows, likeRows, collabRows] = await Promise.all([
-    db.select().from(postImages).where(inArray(postImages.postId, ids)),
-    db.select().from(likes).where(inArray(likes.postId, ids)),
-    db
-      .select({ collab: collaborators, user: users })
-      .from(collaborators)
-      .innerJoin(users, eq(users.id, collaborators.userId))
-      .where(inArray(collaborators.postId, ids)),
-  ]);
-
-  const authorRep = new Map<number, number>();
-
+function byPost<T>(rows: T[], postId: (row: T) => number) {
+  const grouped = new Map<number, T[]>();
   for (const row of rows) {
-    const postLikeCount = likeRows.filter((like) => like.postId === row.post.id).length;
-    authorRep.set(row.author.id, (authorRep.get(row.author.id) ?? 0) + postLikeCount);
+    const id = postId(row);
+    const group = grouped.get(id);
+    if (group) group.push(row);
+    else grouped.set(id, [row]);
   }
+  return grouped;
+}
 
+async function listPosts(viewerId?: number, postId?: number) {
+  const db = getDb();
+  const rows = await db.select({ post: posts, author: users }).from(posts).innerJoin(users, eq(users.id, posts.authorId))
+    .where(postId === undefined ? undefined : eq(posts.id, postId)).orderBy(desc(posts.createdAt));
+  if (!rows.length) return [];
+  const ids = rows.map(row => row.post.id);
+  const [images, reactions, partners, rep] = await Promise.all([
+    db.select().from(postImages).where(inArray(postImages.postId, ids)).orderBy(postImages.sortOrder, postImages.id),
+    db.select({ id: likes.postId, count: sql<number>`count(*)`, liked: sql<number>`max(case when ${likes.userId} = ${viewerId ?? -1} then 1 else 0 end)` })
+      .from(likes).where(inArray(likes.postId, ids)).groupBy(likes.postId),
+    db.select({ id: collaborators.postId, user: users }).from(collaborators).innerJoin(users, eq(users.id, collaborators.userId)).where(inArray(collaborators.postId, ids)),
+    reputations([...new Set(rows.map(row => row.author.id))]),
+  ]);
+  const imagesByPost = byPost(images, item => item.postId);
+  const partnersByPost = byPost(partners, item => item.id);
+  const likesByPost = new Map(reactions.map(item => [item.id, item]));
   return rows.map(({ post, author }) => ({
     ...post,
-    author: {
-      ...safeUser(author),
-      avatarUrl: author.avatarKey || undefined,
-      reputation: authorRep.get(author.id) ?? 0,
-    },
-    images: imageRows
-      .filter((image) => image.postId === post.id)
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-      .map((image) => ({
-        id: image.id,
-        key: image.fileKey,
-        url: image.fileKey,
-      })),
-    likeCount: likeRows.filter((like) => like.postId === post.id).length,
-    liked: viewerId
-      ? likeRows.some((like) => like.postId === post.id && like.userId === viewerId)
-      : false,
-    collaborators: collabRows
-      .filter((item) => item.collab.postId === post.id)
-      .map((item) => safeUser(item.user)),
+    author: { ...safeUser(author), avatarUrl: author.avatarKey || undefined, reputation: rep.get(author.id) ?? 0 },
+    images: (imagesByPost.get(post.id) || []).map(image => ({ id: image.id, key: image.fileKey, url: image.fileKey })),
+    likeCount: Number(likesByPost.get(post.id)?.count ?? 0),
+    liked: Number(likesByPost.get(post.id)?.liked ?? 0) === 1,
+    collaborators: (partnersByPost.get(post.id) || []).map(item => safeUser(item.user))
   }));
 }
 
@@ -229,6 +167,20 @@ async function listPosts(viewerId?: number) {
 // ---------------------------------------------------------
 
 export const biosfereRouter = createRouter({
+  nearbySpecies: authedQuery.input(z.object({
+    lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180),
+    species: z.array(z.string().min(2).max(200)).min(1).max(4)
+  })).query(async ({input}) => {
+    const rows = await getDb().selectDistinct({ name: posts.species }).from(posts).where(and(
+      eq(posts.status, "verified"), inArray(posts.species, input.species),
+      between(posts.lat, input.lat - 0.91, input.lat + 0.91),
+      sql`(sin(radians(${posts.lat} - ${input.lat}) / 2) * sin(radians(${posts.lat} - ${input.lat}) / 2)
+          + cos(radians(${input.lat})) * cos(radians(${posts.lat}))
+          * sin(radians(${posts.lng} - ${input.lng}) / 2) * sin(radians(${posts.lng} - ${input.lng}) / 2))
+          <= ${Math.sin(100 / (2 * 6371)) ** 2}`
+    ));
+    return rows.flatMap(row => row.name ? [row.name] : []);
+  }),
   // -------------------------------------------------------
   // KİMLİK DOĞRULAMA
   // -------------------------------------------------------
@@ -265,7 +217,7 @@ export const biosfereRouter = createRouter({
 
         const [{ id }] = await db
           .insert(users)
-          .values({ ...input, passwordHash: hashPassword(input.password), role, bio: input.bio || "" })
+          .values({ firstName: input.firstName, lastName: input.lastName, username: input.username, email: input.email, phone: input.phone ?? "", passwordHash: hashPassword(input.password), role, bio: input.bio || "" })
           .$returningId();
 
         const [user] = await db.select().from(users).where(eq(users.id, id));
@@ -372,12 +324,7 @@ export const biosfereRouter = createRouter({
 
         if (targetUser.avatarKey) {
           try {
-            const parts = targetUser.avatarKey.split("/upload/");
-            if (parts.length > 1) {
-              let publicId = parts[1].replace(/^v\d+\//, "");
-              publicId = publicId.substring(0, publicId.lastIndexOf(".")) || publicId;
-              await cloudinary.uploader.destroy(publicId);
-            }
+            await destroyCloudImage(targetUser.avatarKey);
           } catch (err) {
             console.error("Cloudinary profil resmi silme hatası:", err);
           }
@@ -390,12 +337,7 @@ export const biosfereRouter = createRouter({
           
           for (const img of imagesToDelete) {
             try {
-              const parts = img.fileKey.split("/upload/");
-              if (parts.length > 1) {
-                let publicId = parts[1].replace(/^v\d+\//, "");
-                publicId = publicId.substring(0, publicId.lastIndexOf(".")) || publicId;
-                await cloudinary.uploader.destroy(publicId);
-              }
+              await destroyCloudImage(img.fileKey);
             } catch (err) {
               console.error("Cloudinary post resmi silme hatası:", err);
             }
@@ -440,8 +382,7 @@ export const biosfereRouter = createRouter({
     get: publicQuery
       .input(z.object({ id: z.number() }))
       .query(async ({ ctx, input }) => {
-        const result = await listPosts(ctx.user?.id);
-        const post = result.find((item) => item.id === input.id);
+        const [post] = await listPosts(ctx.user?.id, input.id);
         if (!post) throw new TRPCError({ code: "NOT_FOUND" });
         return post;
       }),
@@ -457,21 +398,12 @@ export const biosfereRouter = createRouter({
             locality: z.string().trim().min(2).max(200),
             lat: z.number().min(-90).max(90),
             lng: z.number().min(-180).max(180),
-            images: z.array(imageInput).min(1).max(8),
+            images: z.array(imageInput).min(1),
             collaboratorIds: z.array(z.number()).max(30).default([]),
           })
           .superRefine((value, ctx) => {
-            if (!value.unknown) {
-              for (const [key, schema] of Object.entries(requiredTaxonomy)) {
-                const parsed = schema.safeParse(value[key as keyof typeof value]);
-                if (!parsed.success) {
-                  ctx.addIssue({
-                    code: "custom",
-                    path: [key],
-                    message: "Türü bilinen gönderilerde tüm taksonomi alanları zorunludur.",
-                  });
-                }
-              }
+            if (!value.unknown && !value.species?.trim()) {
+              ctx.addIssue({ code: "custom", path: ["species"], message: "Bilimsel tür adı gir veya türü bilinmiyor seçeneğini kullan." });
             }
           })
       )
@@ -479,37 +411,25 @@ export const biosfereRouter = createRouter({
         const db = getDb();
         const savedImages = await resolveImages(input.images);
 
-        const tax = input.unknown
-          ? Object.fromEntries(Object.keys(taxonomyFields).map((key) => [key, null]))
-          : Object.fromEntries(Object.keys(taxonomyFields).map((key) => [key, input[key as keyof typeof input]]));
-
-        const [{ id }] = await db
-          .insert(posts)
-          .values({
-            authorId: ctx.user.id,
-            description: input.description,
+        const classification = {
+          kingdom: input.kingdom, phylum: input.phylum, className: input.className, orderName: input.orderName,
+          family: input.family, genus: input.genus, species: input.species, commonName: input.commonName,
+        };
+        const partnerIds = [...new Set(input.collaboratorIds)].filter(id => id !== ctx.user.id);
+        return db.transaction(async tx => {
+          const [{ id }] = await tx.insert(posts).values({
+            authorId: ctx.user.id, description: input.description,
             status: input.unknown ? "unknown" : "verified",
-            ...tax,
-            city: input.city,
-            locality: input.locality,
-            lat: input.lat,
-            lng: input.lng,
-          })
-          .$returningId();
-
-        await db.insert(postImages).values(
-          savedImages.map((image, index) => ({
-            postId: id,
-            fileKey: image.key,
-            sortOrder: index,
-          }))
-        );
-
-        const collaboratorIds = [...new Set(input.collaboratorIds)].filter((userId) => userId !== ctx.user.id);
-        if (collaboratorIds.length) {
-          await db.insert(collaborators).values(collaboratorIds.map((userId) => ({ postId: id, userId })));
-        }
-        return { id };
+            ...(input.unknown ? {} : classification),
+            city: input.city, locality: input.locality, lat: input.lat, lng: input.lng,
+          }).$returningId();
+          for (let start = 0; start < savedImages.length; start += 100) {
+            await tx.insert(postImages).values(savedImages.slice(start, start + 100).map((image, index) =>
+              ({ postId: id, fileKey: image.key, sortOrder: start + index })));
+          }
+          if (partnerIds.length) await tx.insert(collaborators).values(partnerIds.map(userId => ({ postId: id, userId })));
+          return { id };
+        });
       }),
 
     toggleLike: authedQuery
@@ -560,12 +480,7 @@ export const biosfereRouter = createRouter({
         const images = await db.select().from(postImages).where(eq(postImages.postId, post.id));
         for (const img of images) {
           try {
-            const parts = img.fileKey.split("/upload/");
-            if (parts.length > 1) {
-              let publicId = parts[1].replace(/^v\d+\//, "");
-              publicId = publicId.substring(0, publicId.lastIndexOf(".")) || publicId;
-              await cloudinary.uploader.destroy(publicId);
-            }
+            await destroyCloudImage(img.fileKey);
           } catch (err) {
             console.error("Cloudinary silme hatası:", err);
           }

@@ -1,3 +1,4 @@
+import { photoUrl } from "@/lib/photoUrls";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ArrowUpRight, MapPin, Search } from "lucide-react";
@@ -155,13 +156,13 @@ export function SearchPage() {
                 <Link key={p.id} to={`/gonderi/${p.id}`} className="group overflow-hidden rounded-xl border border-[#09352e]/15 bg-[#fdfefb] transition hover:-translate-y-0.5 hover:border-[#007f24]/50">
                   {p.images[0] && (
                     <div className="aspect-[4/3] overflow-hidden">
-                      <img src={p.images[0].url} alt={p.commonName ?? ""} className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.02]" />
+                      <img loading="lazy" decoding="async" src={photoUrl(p.images[0].url, 480)} onError={e => { if (e.currentTarget.src !== p.images[0].url) e.currentTarget.src = p.images[0].url; }} alt={p.commonName ?? ""} className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.02]" />
                     </div>
                   )}
                   <div className="p-4">
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <h3 className="font-serif text-xl">{p.commonName}</h3>
+                        <h3 className="font-serif text-xl">{p.commonName || p.species}</h3>
                         <p className="font-serif text-sm italic text-[#5f7169]">{p.species}</p>
                       </div>
                       {mode === "city" && <span className="font-mono text-[10px] text-[#007f24]">#{i + 1}</span>}
@@ -254,9 +255,9 @@ export function TaxonomyPage() {
                             {Object.entries(species).flatMap(([sp, posts]) => 
                               posts?.map((p) => (
                                 <Link key={p.id} to={`/gonderi/${p.id}`} className="group flex gap-3 rounded-lg border border-[#09352e]/10 p-3 hover:border-[#007f24]">
-                                  {p.images[0] && <img src={p.images[0].url} alt="" className="h-16 w-16 rounded-md object-cover" />}
+                                  {p.images[0] && <img loading="lazy" decoding="async" src={photoUrl(p.images[0].url, 480)} onError={e => { if (e.currentTarget.src !== p.images[0].url) e.currentTarget.src = p.images[0].url; }} alt="" className="h-16 w-16 rounded-md object-cover" />}
                                   <div className="min-w-0 flex-1">
-                                    <p className="font-serif text-lg">{p.commonName}</p>
+                                    <p className="font-serif text-lg">{p.commonName || p.species}</p>
                                     <p className="truncate font-serif text-sm italic text-[#5f7169]">{sp}</p>
                                     <p className="mt-1 font-mono text-[10px] text-[#71807e]">{p.city} · {posts.length} kayıt</p>
                                   </div>

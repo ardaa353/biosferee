@@ -1,9 +1,8 @@
-import { useState, type FormEvent, useEffect } from "react";
+import PhotoGallery from "@/components/PhotoGallery";
+import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import {
   CalendarDays,
-  ChevronLeft,
-  ChevronRight,
   CircleHelp,
   Flag,
   Heart,
@@ -30,11 +29,8 @@ export default function PostCard({
   post: BioPost;
   compact?: boolean;
 }) {
-  const [slide, setSlide] = useState(0);
   const [reporting, setReporting] = useState(false);
   
-  // YENİ EKLENDİ: Tam ekran resim modu state'i
-  const [isFullscreen, setIsFullscreen] = useState(false);
   
   const [details, setDetails] = useState("");
   const [reason, setReason] = useState<
@@ -91,18 +87,6 @@ export default function PostCard({
       details,
     });
   }
-
-  // YENİ EKLENDİ: Tam ekran açıkken sayfanın arkada kaymasını engelle
-  useEffect(() => {
-    if (isFullscreen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-    }
-    return () => {
-      document.body.style.overflow = 'unset';
-    };
-  }, [isFullscreen]);
 
   const isOwnerOrAdmin =
     !!currentUser &&
@@ -186,103 +170,7 @@ export default function PostCard({
         </div>
       </header>
 
-      {post.images.length > 0 && (
-        <div className="mb-5">
-          <div className="group relative aspect-[4/3] overflow-hidden rounded-xl bg-[#dfe7df] sm:aspect-[16/10]">
-            {/* DÜZELTİLDİ: Resme cursor-zoom-in ve onClick eklendi */}
-            <img
-              src={post.images[slide]?.url}
-              alt={post.commonName ?? "Türü bilinmeyen canlı gözlemi"}
-              className="h-full w-full object-cover cursor-zoom-in transition-transform duration-300 hover:scale-[1.02]"
-              onClick={() => setIsFullscreen(true)}
-              onError={() => {
-                console.error("Görsel yüklenemedi:", post.images[slide]?.url);
-              }}
-            />
-
-            {post.images.length > 1 && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSlide((slide - 1 + post.images.length) % post.images.length);
-                  }}
-                  className="absolute left-3 top-1/2 grid h-11 w-11 -translate-y-1/2 cursor-pointer place-items-center rounded-full bg-[#f7f7f7]/90 opacity-100 shadow sm:opacity-0 sm:group-hover:opacity-100"
-                  aria-label="Önceki fotoğraf"
-                >
-                  <ChevronLeft />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSlide((slide + 1) % post.images.length);
-                  }}
-                  className="absolute right-3 top-1/2 grid h-11 w-11 -translate-y-1/2 cursor-pointer place-items-center rounded-full bg-[#f7f7f7]/90 opacity-100 shadow sm:opacity-0 sm:group-hover:opacity-100"
-                  aria-label="Sonraki fotoğraf"
-                >
-                  <ChevronRight />
-                </button>
-
-                <span className="absolute bottom-3 right-3 rounded-full bg-[#09352e]/85 px-2.5 py-1 font-mono text-[11px] text-white pointer-events-none">
-                  {slide + 1}/{post.images.length}
-                </span>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* YENİ EKLENDİ: Tam Ekran (Lightbox) Modalı */}
-      {isFullscreen && (
-        <div
-          className="fixed inset-0 z-[100] grid place-items-center bg-black/90 p-4 md:p-8 backdrop-blur-sm"
-          onMouseDown={() => setIsFullscreen(false)}
-        >
-          <button
-            className="absolute top-4 right-4 grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/25 z-50"
-            onClick={() => setIsFullscreen(false)}
-            aria-label="Kapat"
-          >
-            <X size={24} />
-          </button>
-          
-          <img
-            src={post.images[slide]?.url}
-            alt="Büyük Görsel"
-            className="max-h-full max-w-full object-contain cursor-zoom-out select-none"
-            onMouseDown={(e) => e.stopPropagation()} 
-            onClick={() => setIsFullscreen(false)}
-          />
-
-          {/* Tam ekrandayken de önceki/sonraki resme geçebilmek için (Opsiyonel ama kullanışlı) */}
-          {post.images.length > 1 && (
-            <>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSlide((slide - 1 + post.images.length) % post.images.length);
-                }}
-                className="absolute left-4 top-1/2 grid h-14 w-14 -translate-y-1/2 cursor-pointer place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/25"
-              >
-                <ChevronLeft size={30} />
-              </button>
-
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSlide((slide + 1) % post.images.length);
-                }}
-                className="absolute right-4 top-1/2 grid h-14 w-14 -translate-y-1/2 cursor-pointer place-items-center rounded-full bg-white/10 text-white transition hover:bg-white/25"
-              >
-                <ChevronRight size={30} />
-              </button>
-            </>
-          )}
-        </div>
-      )}
+      <PhotoGallery images={post.images} alt={post.commonName || post.species || "Canlı gözlemi"} />
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -294,7 +182,7 @@ export default function PostCard({
               </span>
             ) : (
               <span className="font-mono text-[10px] font-semibold uppercase tracking-[.14em] text-[#007f24]">
-                {post.kingdom} / doğrulanmış kayıt
+                {post.kingdom} / türü belirtilmiş gözlem
               </span>
             )}
           </div>
@@ -303,10 +191,10 @@ export default function PostCard({
             <h2 className="font-serif text-3xl leading-tight tracking-[-.6px] hover:underline">
               {post.status === "unknown"
                 ? "Bu canlıyı tanıyor musun?"
-                : post.commonName}
+                : (post.commonName || post.species)}
             </h2>
 
-            {post.species && (
+            {post.species && post.commonName && (
               <p className="mt-0.5 font-serif text-lg italic text-[#50665d]">
                 {post.species}
               </p>

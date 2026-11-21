@@ -119,7 +119,7 @@ export default function SettingsPage() {
   }
 
   function handleDeleteAccount() {
-    if (deleteAccount.isPending) return;
+    if (!user || deleteAccount.isPending) return;
 
     const confirmed = window.confirm(
       "DİKKAT: Hesabınızı kalıcı olarak silmek üzeresiniz. " +

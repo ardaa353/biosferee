@@ -1,16 +1,19 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { Loading, Logo } from "@/components/BioUI";
 import AppShell from "@/components/AppShell";
 import { LoginPage, RegisterPage } from "@/pages/AuthPages";
 import { FeedPage, UnknownPage } from "@/pages/FeedPages";
-import CreatePostPage from "@/pages/CreatePostPage";
-import PostDetailPage from "@/pages/PostDetailPage";
-import { MapPage, SearchPage, TaxonomyPage } from "@/pages/ExplorePages";
-import ProfilePage from "@/pages/ProfilePage";
-import AdminPage from "@/pages/AdminPage";
+const CreatePostPage = lazy(() => import("@/pages/CreatePostPage"));
+const PostDetailPage = lazy(() => import("@/pages/PostDetailPage"));
+const MapPage = lazy(() => import("@/pages/ExplorePages").then(m => ({ default: m.MapPage })));
+const SearchPage = lazy(() => import("@/pages/ExplorePages").then(m => ({ default: m.SearchPage })));
+const TaxonomyPage = lazy(() => import("@/pages/ExplorePages").then(m => ({ default: m.TaxonomyPage })));
+const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
+const AdminPage = lazy(() => import("@/pages/AdminPage"));
 // YENİ EKLENDİ: Ayarlar sayfasını import ediyoruz
-import SettingsPage from "@/pages/SettingsPage"; 
+const SettingsPage = lazy(() => import("@/pages/SettingsPage")); 
 
 function Protected() { 
   const { user, loading } = useAuth(); 
@@ -42,7 +45,7 @@ function NotFound() {
 export default function App() { 
   return (
     <AuthProvider>
-      <Routes>
+      <Suspense fallback={<Loading />}><Routes>
         <Route path="/" element={<HomeRedirect />} />
         <Route path="/giris" element={<LoginPage />} />
         <Route path="/kayit" element={<RegisterPage />} />
@@ -68,7 +71,7 @@ export default function App() {
         
         {/* Eşleşmeyen tüm adresler için 404 sayfası */}
         <Route path="*" element={<NotFound />} />
-      </Routes>
+      </Routes></Suspense>
     </AuthProvider>
   ); 
 }
