@@ -1,40 +1,52 @@
 # BioSfere Veri Atölyesi
 
-Fotoğrafları gönderi gruplarına ayıran, **bilgisayarda** tür önerisi üreten ve BioSfere'nin admin paneline aktarılabilecek ZIP hazırlayan Tkinter uygulaması.
+Fotoğrafları gönderi gruplarına ayırın; türleri tahmin ettirin; sistematiği, açıklamayı ve konumu düzenleyip BioSfere'ye uygun ZIP üretin.
 
-## Başlatma
+## Kurulum yapmadan webden kullanma
 
-Bu `desktop` klasörünü bütün dosyalarıyla indirin. Python 3 kurulu olmalı. Mac'te `BioSfere-Baslat.command`, Windows'ta `BioSfere-Baslat.bat` dosyasını çalıştırın. Başlatıcı, uyumlu Python 3.12 ortamını ve bağımlılıkları klasörün içine kurar. Mac dosya çalıştırma izni istemiyorsa Terminal'de `zsh BioSfere-Baslat.command` kullanılabilir.
+[Admin paneli → Gözlem veri atölyesi](https://biosferee.onrender.com/yonetim?sekme=atolye) aynı işlemleri tarayıcıda yapar: çoklu fotoğraf seçme ve gruplama, bütün grup fotoğraflarından analiz, düzenlenebilir adaylar ve sistematik, açıklama taslağı, haritada konum, mevcut ZIP/RAR verisini açıp düzenleme, fotoğraflı ZIP indirme ve doğrudan siteye ekleme. **Python gerekmez.** Gönderici olarak mevcut kullanıcı veya profil/itibar hesabı olmayan **BioSfere** seçilir.
 
-Elle kurulum: Python **3.12** ile `python -m venv .venv`, ortamı etkinleştirin, `pip install -r requirements.txt`, ardından `python biosfere_data_maker.py`. Tkinter Python kurulumunda bulunmalıdır. Linux'ta dağıtımınızın Python/Tk paketini kurun.
+## Masaüstünde başlatma
 
-İlk analizde birkaç GB model ve takson vektörü indirilir. İnternet ve yeterli disk alanı gerekir. Sonraki analizler yereldir; ücretli servis, API anahtarı, token veya sorgu kotası kullanılmaz. CPU, uyumlu NVIDIA CUDA ve Apple MPS desteklenir; donanıma göre analiz uzun sürebilir. `.cache` klasörünü koruyun. Yeterli bellek yoksa diğer ağır uygulamaları kapatın. Gelişmiş kurulumda `BIOSFERE_CACHE_DIR` ile önbellek konumu seçilebilir.
+Bu klasörü bütün dosyalarıyla indirin. Mac'te `BioSfere-Baslat.command`, Windows'ta `BioSfere-Baslat.bat` dosyasını çalıştırın. Python 3 kurulu olmalıdır. Başlatıcı uyumlu Python 3.12 ortamını ve hafif istemci bağımlılıklarını kurar.
+
+**Varsayılan analiz çevrim içidir; büyük model dosyaları indirilmez.** Ücretli API anahtarı veya token satın alma gerektirmez. Imageomics'in herkese açık Hugging Face servisleri kullanılır. Bunlar paylaşımlı araştırma servisleridir: sıra, kesinti veya sağlayıcı erişim sınırı olabilir. Kesintisiz ve sınırsız erişim garantisi verilmez; sınırlar aşılmaya çalışılmaz. Fotoğrafların EXIF/konum bilgisi çıkarılmış, küçültülmüş kopyaları analiz için bu servislere gönderilir.
+
+Elle kurulum: Python 3.12 ile sanal ortam oluşturun, `pip install -r requirements.txt`, ardından `python biosfere_data_maker.py`. Tkinter Python kurulumunda bulunmalıdır; Linux'ta dağıtımınızın Python/Tk paketini kurun.
+
+## Analiz yöntemleri
+
+- **Çevrim içi BioCLIP 2:** Fotoğrafları [resmî BioCLIP 2 servisine](https://huggingface.co/spaces/imageomics/bioclip-2-demo) gönderir; âlemden türe kadar adaylar döner. Bütün grup fotoğraflarının aday puanları birleştirilir. Model bilgisayarınıza indirilmez.
+- **200M+ görselde ara:** [BioCLIP Image Search Lite](https://huggingface.co/spaces/imageomics/bioclip-image-search-lite), büyük TreeOfLife görsel dizininde benzer kareleri arar. En yakın kayıtların sistematik bilgileri bütün grup fotoğrafları üzerinden birleştirilir. Arama sırası puanı teşhis olasılığı değildir. Kaynak bağlantıları analiz metadata içinde korunur; kaynak fotoğraflar sizin gözleminizin fotoğrafı olarak ZIP'e eklenmez.
+- **Yerel BioCLIP 2 (isteğe bağlı):** Çevrim dışı analiz isteyenler `pip install -r requirements-local.txt` ile ağır bağımlılıkları kurabilir. Bu modda ilk kullanımda birkaç GB model/vektör indirilir. Yaklaşık 952 bin takson üzerinde eğitilmiş modelin sabit yerel dizininde 867.455 aday vardır. CPU, Apple MPS ve CUDA desteklenir. Bu modun ilk indirmesi yalnızca yerel seçeneği çalıştırınca yapılır.
+
+Model kapsamı bilinen her canlıyı veya mikroskobik düzeyde kesin teşhisi kapsamaz. Sonuçlar düzenlenebilir önerilerdir; puanlar kalibre edilmiş kesinlik yüzdesi değildir.
 
 ## Kullanım
 
-1. **Fotoğraf ekle** ile görüntüleri açın. Örneğin 1, 2, 3'ü tıklayıp **Seçileni yeni gönderi yap** deyin. Sonra 4, 5'i başka bir gönderi yapın. Shift ile aralık seçebilirsiniz. Yeşil çerçeve seçimi, renkli zemin gönderi grubunu gösterir. Bir fotoğraf bir gruba aittir; başka gruba eklerseniz taşınır.
-2. **Analiz et** her grubun **bütün fotoğraflarını** birlikte değerlendirir. Aynı gruba aynı canlıya ait kareleri koyun. En yüksek puanlı tür önerilir; beş adaydan birini de seçebilirsiniz. Âlemden türe kadar alanlar doldurulur. Puan, kalibre edilmiş kesinlik yüzdesi değildir. Tür tayini öneridir, özellikle benzer türlerde doğrulama gerekir.
-3. Sağdan gönderiyi seçin; sistematiği, Türkçe adı, açıklamayı, tarih ve kaynak kullanıcı adını düzenleyin. Kaynak kullanıcı adı sitedeki gönderici hesabı olarak kullanılmaz.
-4. Fotoğrafta EXIF GPS varsa enlem/boylam doldurulur. GPS yoksa **Haritadan konum seç** ile sağ tıklayıp gerçek gözlem yerini işaretleyin veya koordinatları yazın. İl ve yer bilgisini düzenleyin. **Bu konumu tüm gruplara uygula**, yalnızca aynı yerde çekilmiş gözlemler için kullanılır. Koordinatı eksik kayıt dışarı aktarılmaz; uygulama konum uydurmaz. Harita OpenStreetMap döşemeleri için internet kullanır.
-5. **ZIP dışa aktar** `data.json` ve `photos/gonderi1.1.webp` gibi dosyaları üretir. Görüntüler yönleri düzeltilerek en fazla 3840 piksele ve 7,5 MB'ye hazırlanır; görüntü içindeki GPS kaldırılır, konum JSON'da kalır. Orijinal fotoğrafları ayrıca saklayın.
-6. BioSfere → Admin → **Veri aktarımı ve bulut** → ZIP/RAR seç → **Kimin adına kaydedilsin?** listesinden kullanıcı veya BioSfere → **Veriyi ekle**. Mevcut gönderiler silinmez. BioSfere bir kullanıcı hesabı oluşturmaz; profil ve itibar puanı yoktur.
+1. **Fotoğraf ekle** ile görüntüleri açın. Örneğin 1, 2, 3'ü seçip **Seçileni yeni gönderi yap**, sonra 4 ve 5'i seçip başka gönderi oluşturun. Shift ile aralık seçilir. Yeşil çerçeve seçimi, renkli zemin grubu gösterir. Başka gruba eklenen fotoğraf taşınır.
+2. Analiz yöntemini seçip **Analiz et** düğmesine basın. Aynı gruptaki bütün fotoğraflar değerlendirilir. En yüksek puanlı aday doldurulur; beş aday arasından başka tür seçebilirsiniz.
+3. Her gönderiyi seçip sistematiği, Türkçe adı, açıklamayı, tarih ve kaynak kullanıcı adını değiştirin. Varsayılan açıklama sistematik önerisinden oluşturulan düzenlenebilir taslaktır. Fotoğrafta görülen özelliklere ilişkin uzun metni kontrol ederek yazın.
+4. EXIF GPS varsa koordinat alınır. Yoksa **Haritadan konum seç** ile gerçek gözlem yerini seçin veya enlem/boylam yazın. İl ve yer alanlarını düzenleyin. Koordinatsız gönderi dışarı aktarılmaz. Aynı yerde çekilen gruplarda **Bu konumu tüm gruplara uygula** kullanılabilir.
+5. **ZIP dışa aktar** ile `data.json` + `photos/gonderi1.1.webp` gibi eşleşen fotoğraflar oluşur. Orijinalleri ayrıca saklayın; görüntüler en fazla 3840 piksele ve 7,5 MB'ye hazırlanır. Konum JSON'da tutulur.
+6. Admin → **Veri aktarımı ve bulut** → ZIP/RAR seç → gönderen kullanıcı veya BioSfere seç → **Veriyi ekle**. Mevcut gözlemlere eklenir. Kaynak kullanıcı adı yalnızca metadata olarak korunur; sitedeki gönderici seçiminiz kullanılır.
 
-**Projeyi kaydet/aç** düzenlemeleri ve grupları JSON olarak saklar; özgün fotoğraf yollarını kullanır. Fotoğrafları taşımayın. Proje dosyası siteye aktarılan ZIP'ten farklıdır.
+**Projeyi kaydet/aç** masaüstü düzenlemelerini JSON olarak saklar; özgün fotoğraf yollarını kullanır. Web atölyesindeki **Taslağı sakla/aç** fotoğraflarla birlikte aynı tarayıcıya kaydeder. Tarayıcı verilerini temizlemeyin; taşınabilir son veriyi ZIP olarak indirin.
 
-## İsteğe bağlı görsel açıklama
+## İsteğe bağlı yerel görsel açıklama
 
-Sınıflandırıcı varsayılan olarak düzenlenebilir bir tür önerisi açıklaması hazırlar. Fotoğrafta görülen özelliklerden daha ayrıntılı Türkçe metin üretmek için ücretsiz, yerel [Ollama](https://ollama.com/) uygulamasını açın. **Açıklama modelini hazırla** düğmesi `qwen3-vl:2b` modelini indirir; sonra **Yerel yapay zekâyla açıklama** kutusunu işaretleyin. Bu model de bilgisayarda çalışır; görseller ücretli bir API'ye gönderilmez. Sınıflandırıcı bellekten çıkarıldıktan sonra açıklama aşaması başlar. Metni yayımlamadan önce kontrol edin. Ollama kapalıysa tür önerileri korunur.
+Ücretsiz [Ollama](https://ollama.com/) uygulaması açıkken **Açıklama modelini hazırla** düğmesi `qwen3-vl:2b` modelini indirir. Ardından isteğe bağlı yerel açıklama kutusu seçilebilir. Bu ayrı özellik model indirmesi gerektirir; varsayılan çevrim içi tür tahmininde gerekli değildir. Ollama kapalıysa tür önerileri korunur. Web atölyesi sınıflandırma sonucundan açıklama taslağı üretir; tarayıcıdan bilgisayarınızdaki Ollama'ya bağlanmaz.
 
-## Model, kapsam ve lisanslar
+## Kaynaklar ve lisanslar
 
-- [BioCLIP 2](https://huggingface.co/imageomics/bioclip-2), MIT, sabit sürüm `2957b322090f9cb17ae72c71981c7218a28d81e0`.
-- [TreeOfLife-200M takson vektörleri](https://huggingface.co/datasets/imageomics/TreeOfLife-200M/tree/main/embeddings), sabit sürüm `5f2dc493b3dc0e544438a04038ab15faa646b749`. Eğitim kapsamı yaklaşık **952 bin taksondur**; bu sabit sürümün yayımlanmış sınıflandırma dizininde **867.455 takson adayı** bulunur. bitki, hayvan, mantar ve başka gruplar. Bilinen her canlı türünü veya mikroskobik düzeyde kesin teşhisi kapsadığı iddia edilmez. Veri kümesinin özgün görselleri indirilmez; yayımlanan adlar/vektörler kullanılır. Kaynakların lisans koşulları geçerlidir; ücretsiz olmak lisanssız olmak anlamına gelmez.
-- Ön işleme [resmî pybioclip](https://github.com/Imageomics/pybioclip) tam kare 224×224 akışına dayanır. Bütün grup görüntülerinin normalize vektörleri ortalanıp bütün yayımlanmış takson vektörleriyle karşılaştırılır. Vektörler bellek eşlemeli okunur; metin kodlayıcısı tutulmaz.
+- [BioCLIP 2](https://huggingface.co/imageomics/bioclip-2), MIT. İsteğe bağlı yerel ağırlık sürümü `2957b322090f9cb17ae72c71981c7218a28d81e0`.
+- [TreeOfLife-200M](https://huggingface.co/datasets/imageomics/TreeOfLife-200M), yerel vektör sürümü `5f2dc493b3dc0e544438a04038ab15faa646b749`.
+- [BioCLIP Image Search Lite kaynak kodu](https://github.com/Imageomics/bioclip-image-search-lite), MIT; çevrim içi veri kapsamı ve hizmet koşulları sağlayıcıya bağlıdır.
+- [Gradio istemcisi](https://www.gradio.app/guides/getting-started-with-the-python-client), herkese açık API'lerle iletişim kurar; gizli iNaturalist API'leri kullanılmaz.
 - İsteğe bağlı [Qwen3-VL 2B](https://ollama.com/library/qwen3-vl:2b), Apache 2.0.
-- Görsel dosyaları ve oluşturduğunuz verinin paylaşım haklarını siz belirleyin; modeller kaynak fotoğrafların haklarını değiştirmez.
+
+Fotoğraflarınızın ve derlediğiniz verinin paylaşım haklarını siz belirleyin. Ücretsiz erişim lisanssızlık anlamına gelmez.
 
 ## Arşiv sözleşmesi
 
-Kökte `data.json`, `photos/` altında gönderi görüntüleri bulunur. JSON: `format: "biosfere-dataset"`, `version: 1`, benzersiz `archiveId`, `posts` dizisi. Her gönderi benzersiz `id`, açıklama, `kingdom/phylum/className/orderName/family/genus/species/commonName`, `city/locality`, sayısal `lat/lng`, ISO tarih, `author`, `images: ["./photos/gonderi1.1.webp"]` alanlarını içerir. Model kaynağı ve adaylar `metadata.analysis` içindedir. Site bu biçimi ZIP ve şifresiz RAR olarak okuyabilir. Program ZIP üretir.
-
-Sunucuda MySQL şema güncelleme yetkisi ve Cloudinary `CLOUDINARY_API_KEY` + `CLOUDINARY_API_SECRET` (veya `CLOUDINARY_URL`) gerekir. Anahtarlar ZIP'e, kaynak koda veya masaüstü uygulamasına konmaz. Silinen asıl dosya ve otomatik yedekleri kalıcı kuyrukla temizlenir; Cloudinary kota/yetki hatalarında tekrar denenir. Önceki silmelerden kalan yedekler admin panelindeki temizleme düğmesiyle kuyruğa alınabilir.
+Kökte `data.json`, `photos/` altında gönderi görüntüleri bulunur. JSON `format: "biosfere-dataset"`, `version: 1`, benzersiz `archiveId`, `posts` dizisini içerir. Her gönderide `id`, açıklama, `kingdom/phylum/className/orderName/family/genus/species/commonName`, `city/locality`, sayısal `lat/lng`, ISO tarih, `author` ve `images: ["./photos/gonderi1.1.webp"]` bulunur. Kaynak ve adaylar `metadata.analysis` içindedir. Site şifresiz ZIP ve RAR okur; atölyeler ZIP üretir. Profil fotoğrafları dahil edilmez.

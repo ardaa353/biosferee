@@ -33,6 +33,17 @@ Sunucu, `cloud_image_deletions` tablosunu ilk kullanımda otomatik oluşturur. V
 
 Admin panelindeki **Veri aktarımı ve bulut** sekmesi profil fotoğraflarını dışarıda tutarak `data.json` + `photos/` içeren ZIP indirir. Şifresiz ZIP/RAR içe aktarımı mevcut kayıtlara ekleme yapar. Gönderen mevcut kullanıcılar arasından veya profil/itibar sahibi olmayan **BioSfere** olarak seçilir; kaynak yazar adı yalnızca kaynak metadata içinde korunur. Fotoğraflar dosya adlarıyla JSON kaydına bağlıdır. Yarım kalan aktarım açık sayfada tekrarlandığında tamamlanan kayıtlar yinelenmez; kaydedilmemiş yüklemeler iki saatten sonra temizlenir.
 
-[Python Tkinter Veri Atölyesi](desktop/README.md), fotoğrafları gruplandırır, yerel BioCLIP 2 ile her gruptaki bütün fotoğraflardan sistematik önerir, düzenlenebilir sonuçlar ve haritadan koordinat seçimi sağlar; aynı ZIP biçimini üretir. Admin panelinden uygulamanın kaynak ZIP'i de indirilebilir. Modelin ilk indirmesi büyüktür; sonraki analizler ücretli API veya kullanım kotası olmadan bilgisayarda çalışır.
+[Python Tkinter Veri Atölyesi](desktop/README.md), fotoğrafları gruplandırır, varsayılan çevrim içi BioCLIP 2 veya isteğe bağlı yerel model ile her gruptaki bütün fotoğraflardan sistematik önerir, düzenlenebilir sonuçlar ve haritadan koordinat seçimi sağlar; aynı ZIP biçimini üretir. Admin panelinden uygulamanın kaynak ZIP'i de indirilebilir. Varsayılan çevrim içi mod büyük model indirmez; ortak servisin erişim koşulları geçerlidir. Yerel modda ilk model indirmesi büyüktür, sonraki analizler bilgisayarda çalışır.
 
 Aktarım tabloları ilk kullanımda oluşturulur ve `posts.author_id` anonim gönderici için nullable yapılır. Sunucunun MySQL `CREATE`/`ALTER` yetkisi ve Cloudinary sunucu anahtarları gerekir. Fotoğraflar admin tarayıcısından imzalı olarak doğrudan Cloudinary'ye gider, Render diski geçici arşiv deposu olarak kullanılmaz. Parolalar, oturumlar, e-posta/telefon ve profil fotoğrafları taşınabilir gözlem arşivine dahil edilmez.
+
+
+## Web gözlem atölyesi ve indirmesiz çevrim içi analiz
+
+Admin → **Gözlem veri atölyesi** (`/yonetim?sekme=atolye`) üzerinden fotoğraflar çoklu seçilip gönderilere ayrılır; grup başına bütün kareler değerlendirilir; sistematik, açıklama taslağı, tarih ve harita konumu düzenlenir. ZIP/RAR verisi düzenlemek üzere açılabilir. Fotoğraflı ZIP indirilebilir veya mevcut kullanıcılardan biri/BioSfere seçilip doğrudan siteye eklenebilir. Tarayıcı taslağı fotoğraflarla IndexedDB'ye kaydedilebilir. Sekmeler arası geçişte açık atölye korunur.
+
+Varsayılan analiz, resmî Imageomics BioCLIP 2 Hugging Face Space'inin herkese açık Gradio API'sini kullanır; model ağırlıkları kullanıcıya veya Render'a indirilmez. İkinci yöntem BioCLIP Image Search Lite üzerinden 200M+ görsel dizininde benzerlik arar. Bütün grup fotoğraflarının sonuçları birleştirilir; kaynaklar ve puanlar metadata içinde saklanır. Fotoğrafların yalnızca küçültülmüş, EXIF/GPS içermeyen kopyaları çevrim içi sağlayıcıya gönderilir. Hizmetler paylaşımlıdır; sıra, kesinti veya erişim sınırı olabilir. Ücretli API anahtarı yoktur; sınırsız/garantili erişim iddiası yoktur. Hata ve kota sınırlarında kullanıcıya durum gösterilir, aşılmaya çalışılmaz.
+
+Tarayıcı modelleri isteğe bağlı üçüncü yöntemdir; küçük model dosyaları alır ve daha dar tür kapsamına sahiptir. Büyük veri kataloğunda bir adın bulunması, o türün her analiz modeli tarafından görselden tanınabildiği anlamına gelmez. GPS bulunmayan gözlemlerin konumu kullanıcı tarafından seçilir.
+
+Python atölyesi de varsayılan olarak çevrim içi çalışır. Hafif `requirements.txt` model indirmez; ağır yerel model bağımlılıkları yalnızca isteğe bağlı `requirements-local.txt` içindedir. Ayrıntılar [masaüstü kullanım kılavuzunda](desktop/README.md).

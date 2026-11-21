@@ -21,6 +21,11 @@ const defaultIcon = L.icon({
 function LocationEvents({ lat, lng, onChange }: {lat: number; lng: number; onChange: (lat: number, lng: number) => void}) {
   const map = useMap();
   useEffect(() => {
+    const observer = new ResizeObserver(entries => { if (entries[0]?.contentRect.width && entries[0]?.contentRect.height) map.invalidateSize({pan: false}); });
+    observer.observe(map.getContainer());
+    return () => observer.disconnect();
+  }, [map]);
+  useEffect(() => {
     if (Number.isFinite(lat) && Number.isFinite(lng)) map.setView([lat, lng], map.getZoom());
   }, [lat, lng, map]);
   useMapEvents({ click(e) { onChange(Number(e.latlng.lat.toFixed(6)), Number(e.latlng.lng.toFixed(6))); } });

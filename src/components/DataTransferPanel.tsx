@@ -132,6 +132,7 @@ export default function DataTransferPanel() {
     </div>
     <div className="rounded-xl border border-[#09352e]/15 bg-white p-5">
       <h2 className="font-serif text-2xl">ZIP / RAR verisini içe aktar</h2>
+      <a href="/yonetim?sekme=atolye" className={secondaryButton + " mt-3 mr-2"}>Fotoğrafları web atölyesinde hazırla</a>
       <a href="/downloads/biosfere-veri-atolyesi.zip" download className={secondaryButton + " mt-3"}><Download size={17} />Python veri hazırlama uygulamasını indir</a>
       <p className="my-3 text-sm leading-6 text-[#50665d]">Arşivin kökünde data.json ve photos klasörü bulunmalı. Kayıtlar mevcut gözlemlere eklenir. Arşivdeki gönderen adı kaynak bilgisi olarak saklanır. Sitede aşağıda seçtiğiniz ad kullanılır.</p>
       <input type="file" accept=".zip,.rar,application/zip,application/x-rar-compressed" disabled={busy} className="mb-4 block w-full text-sm" aria-label="Veri arşivi seç" onChange={e => { void open(e.target.files?.[0]); e.target.value = ""; }} />

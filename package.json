@@ -20,6 +20,7 @@
     "predev": "npm run prepare:photos && node db/prepare-catalog.mjs"
   },
   "dependencies": {
+    "@gradio/client": "2.8.0",
     "@hono/node-server": "^1.14.3",
     "@hookform/resolvers": "^5.2.2",
     "@litertjs/core": "2.6.0",
@@ -62,6 +63,7 @@
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.1",
     "embla-carousel-react": "^8.6.0",
+    "exifr": "7.1.3",
     "heic-to": "1.4.3",
     "hono": "^4.8.3",
     "input-otp": "^1.4.2",

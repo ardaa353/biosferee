@@ -1,11 +1,5 @@
-numpy>=2.0,<3
 Pillow>=11.0,<13
 pillow-heif>=0.22,<2
-open_clip_torch>=3.2,<4
-torch>=2.6,<3
-torchvision>=0.21,<1
-huggingface_hub>=0.34,<2
-safetensors>=0.5,<1
-ijson>=3.4,<4
-tkintermapview==1.29
+gradio_client==2.7.2
 httpx[socks]>=0.28,<1
+tkintermapview==1.29

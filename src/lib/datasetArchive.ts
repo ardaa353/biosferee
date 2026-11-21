@@ -3,6 +3,27 @@ import { datasetSchema, type Dataset } from "@contracts/dataset";
 configure({useWebWorkers: false});
 
 export type DatasetArchive = { dataset: Dataset; readPhoto: (path: string) => Promise<File>; close: () => Promise<void> };
+export async function downloadPreparedArchive(archive: DatasetArchive, progress: (message: string) => void, signal: AbortSignal) {
+  const writer = new ZipWriter(new BlobWriter("application/zip"));
+  const written = new Set<string>();
+  try {
+    for (const [index, post] of archive.dataset.posts.entries()) {
+      progress(`Gönderi ${index + 1} / ${archive.dataset.posts.length} ZIP'e yazılıyor…`);
+      for (const path of post.images) {
+        signal.throwIfAborted();
+        if (written.has(path)) continue;
+        await writer.add(path.replace(/^\.\//, ""), new BlobReader(await archive.readPhoto(path)), {level: 0});
+        written.add(path);
+      }
+    }
+    signal.throwIfAborted();
+    await writer.add("data.json", new TextReader(JSON.stringify(archive.dataset, null, 2)));
+    const blob = await writer.close();
+    const url = URL.createObjectURL(blob), link = document.createElement("a");
+    link.href = url; link.download = "biosfere-atolye-" + new Date().toISOString().slice(0, 10) + ".zip"; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (error) { try { await writer.close(); } catch { /* Preserve the original error. */ } throw error; }
+}
 function normalized(path: string) {
   const value = path.replace(/^\.\//, "").replace(/\\/g, "/");
   if (value.startsWith("/") || value.split("/").some(part => part === "..") || value.includes("\0")) throw new Error("Arşivde güvenli olmayan bir dosya yolu var.");

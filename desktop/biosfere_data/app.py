@@ -37,6 +37,7 @@ class App(tk.Tk):
         self.busy = False
         self.inputs = {key: tk.StringVar() for key in LABELS}
         self.use_description = tk.BooleanVar(value=False)
+        self.analysis_mode = tk.StringVar(value="Çevrim içi BioCLIP 2")
         self.status = tk.StringVar(value="Fotoğrafları ekleyin. Aynı canlıya ait kareleri seçip bir gönderi oluşturun.")
         self._build()
         self.after(80, self._poll)
@@ -49,9 +50,13 @@ class App(tk.Tk):
                                ("Projeyi kaydet", self.save_project), ("Analiz et", self.analyze),
                                ("Durdur", self.cancelled.set), ("ZIP dışa aktar", self.export)):
             ttk.Button(toolbar, text=label, command=command).pack(side="left", padx=3)
-        ttk.Checkbutton(toolbar, text="Yerel yapay zekâyla açıklama", variable=self.use_description).pack(side="left", padx=8)
-        ttk.Button(toolbar, text="Açıklama modelini hazırla", command=self.install_description).pack(side="left")
-        ttk.Label(self, text="Analiz bilgisayarda çalışır. İlk kullanımda model indirilir. Önerileri kontrol edip değiştirebilirsiniz.", padding=(14, 0, 10, 8)).pack(anchor="w")
+        options = ttk.Frame(self, padding=(10, 0, 10, 8))
+        options.pack(fill="x")
+        ttk.Label(options, text="Analiz yöntemi:").pack(side="left", padx=4)
+        ttk.Combobox(options, textvariable=self.analysis_mode, state="readonly", width=34, values=("Çevrim içi BioCLIP 2", "200M+ görselde ara", "Yerel BioCLIP 2 (isteğe bağlı)")).pack(side="left", padx=4)
+        ttk.Checkbutton(options, text="Yerel yapay zekâyla açıklama (isteğe bağlı)", variable=self.use_description).pack(side="left", padx=8)
+        ttk.Button(options, text="Açıklama modelini hazırla", command=self.install_description).pack(side="left")
+        ttk.Label(self, text="Çevrim içi mod büyük model indirmez; konum bilgisi içermeyen görüntü kopyalarını Imageomics/Hugging Face'e gönderir. Ortak serviste sıra veya erişim sınırı olabilir.", wraplength=1250, padding=(14, 0, 10, 8)).pack(anchor="w")
 
         pane = ttk.Panedwindow(self, orient="horizontal")
         pane.pack(fill="both", expand=True, padx=10)
@@ -334,11 +339,21 @@ class App(tk.Tk):
             return
         self.save_form()
         descriptions = self.use_description.get()
+        analysis_mode = self.analysis_mode.get()
         def worker():
             engine = None
             try:
                 from .analysis import BioClipEngine, ollama_description
-                engine = BioClipEngine(progress=lambda text: self.events.put(("status", text)))
+                progress = lambda text: self.events.put(("status", text))
+                if analysis_mode.startswith("Yerel"):
+                    try:
+                        import torch
+                    except ImportError as error:
+                        raise ImportError("Yerel mod için requirements-local.txt bağımlılıklarını kurun veya çevrim içi modu seçin.") from error
+                    engine = BioClipEngine(progress=progress)
+                else:
+                    from .remote_analysis import RemoteEngine
+                    engine = RemoteEngine(progress=progress, mode="database" if analysis_mode.startswith("200M") else "online")
                 for index, group in enumerate(self.groups):
                     if self.cancelled.is_set():
                         raise InterruptedError("Analiz durduruldu. Tamamlanan sonuçlar korundu.")
@@ -353,6 +368,8 @@ class App(tk.Tk):
                         raise
                     except Exception as error:
                         self.events.put(("group_error", index, str(error)))
+                        if not analysis_mode.startswith("Yerel"):
+                            raise
                 engine.close()
                 engine = None
                 if descriptions:

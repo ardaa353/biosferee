@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 const DataTransferPanel = lazy(() => import("@/components/DataTransferPanel"));
+const ObservationWorkshop = lazy(() => import("@/components/ObservationWorkshop"));
 import { useState } from "react";
 import { Link } from "react-router";
 import { Check, ShieldCheck, X, Trash2 } from "lucide-react";
@@ -9,7 +10,8 @@ import { Avatar, Loading, PageHeading, buttonClass, inputClass, secondaryButton 
 
 export default function AdminPage() {
   const { user } = useAuth(); 
-  const [tab, setTab] = useState<"reports" | "suggestions" | "users" | "data">("reports"); 
+  const [tab, setTab] = useState<"reports" | "suggestions" | "users" | "data" | "workshop">(() => new URLSearchParams(window.location.search).get("sekme") === "atolye" ? "workshop" : "reports");
+  const [workshopOpened, setWorkshopOpened] = useState(tab === "workshop");
   const [userSearch, setUserSearch] = useState("");
 
   const users = trpc.biosfere.users.list.useQuery(); 
@@ -34,23 +36,24 @@ export default function AdminPage() {
       />
       
       <div className="mb-7 flex flex-wrap gap-2">
-        {(["reports", "suggestions", "users", ...(user.role === "admin" ? ["data" as const] : [])] as const).map((t) => (
+        {(["reports", "suggestions", "users", ...(user.role === "admin" ? ["workshop" as const, "data" as const] : [])] as const).map((t) => (
           <button 
             key={t} 
-            onClick={() => setTab(t)} 
+            onClick={() => { setTab(t); if (t === "workshop") setWorkshopOpened(true); }}
             className={`min-h-11 rounded-full border px-4 text-sm font-semibold transition-colors ${tab === t ? "border-[#09352e] bg-[#09352e] text-white" : "border-[#09352e]/20 hover:bg-[#09352e]/5"}`}
           >
             {t === "reports" 
               ? `Raporlar (${overview.data?.reports.filter((r) => r.status === "pending").length ?? 0})` 
               : t === "suggestions" 
               ? `Tür önerileri (${overview.data?.suggestions.length ?? 0})` 
-              : t === "data" ? "Veri aktarımı ve bulut" : "Kullanıcı yetkileri"}
+              : t === "workshop" ? "Gözlem veri atölyesi" : t === "data" ? "Veri aktarımı ve bulut" : "Kullanıcı yetkileri"}
           </button>
         ))}
       </div>
 
       {tab === "data" && user.role === "admin" && <Suspense fallback={<Loading />}><DataTransferPanel /></Suspense>}
-      {overview.isLoading && tab !== "data" ? (
+      {workshopOpened && user.role === "admin" && <div hidden={tab !== "workshop"}><Suspense fallback={<Loading />}><ObservationWorkshop /></Suspense></div>}
+      {overview.isLoading && tab !== "data" && tab !== "workshop" ? (
         <Loading />
       ) : tab === "reports" && (
         <section className="space-y-4">
