@@ -24,7 +24,7 @@ export function SpeciesAssistant({ files, location, onAutomatic, onChoose }: Pro
       try {
         const predictions = await identifyPhotos(files, signal, s => { if (!signal.aborted) setStatus(s); });
         if (signal.aborted) return;
-        const candidates = await Promise.all(predictions.filter(p => p.score >= 0.12).map(async p => {
+        const candidates = await Promise.all(predictions.slice(0, 4).map(async p => {
           const kingdom = p.group === "plant" ? "Plantae" : p.group === "fungus" ? "Fungi" : "Animalia";
           const name = p.name.split(" ").slice(0, 2).join(" ");
           const rows = await catalogSearch(name, "species", signal).catch(() => null);
@@ -37,7 +37,7 @@ export function SpeciesAssistant({ files, location, onAutomatic, onChoose }: Pro
         if (candidates[0]?.catalogued && confident(predictions)) {
           onAutomatic(candidates[0].taxonomy);
           setStatus("Güçlü görsel eşleşme bulundu. Türü ve sınıflandırmayı kontrol edebilirsin.");
-        } else setStatus(candidates.length ? "Kesin bir eşleşme çıkmadı. Uygun gördüğün adayı seçebilirsin." : "Güvenilir bir tür önerisi bulunamadı.");
+        } else setStatus(candidates.length ? "Olası türler aşağıda. Fotoğrafınla karşılaştırıp uygun adayı seçebilirsin." : "Güvenilir bir tür önerisi bulunamadı.");
       } catch {
         if (!signal.aborted) { setFailed(true); setStatus("Bu cihazda fotoğraf analizi tamamlanamadı. Katalogdan seçim yapabilir veya elle yazabilirsin."); }
       }

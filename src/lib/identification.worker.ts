@@ -1,12 +1,12 @@
 import { loadLiteRt, loadAndCompile, Tensor, type CompiledModel } from "@litertjs/core";
-import { broadGroup, generalName, type Group, type Guess } from "./species-ranking";
+import { broadGroup, generalName, specialistsFor, type Group, type Guess } from "./species-ranking";
 
 const root = "/identification/assets/";
 const coral = "coral-104342d/";
 const extra = { mammals: "mammals-22b0311", herps: "herps-a3aedbc", arachnids: "arachnids-09b1934", fungus: "fungi-e0e8c0f" } as const;
 type Specialist = Exclude<Group, "animal">;
 type Model = Specialist | "general";
-type Sample = { full: Uint8Array; crop: Uint8Array };
+type Sample = { full: Uint8Array; crop: Uint8Array; detail?: Uint8Array };
 const initialized = loadLiteRt(new URL(root + "litert-2.6.0/", self.location.origin).href, { threads: false, jspi: false });
 const labelLists = new Map<Model, string[]>();
 let model: CompiledModel | undefined;
@@ -36,7 +36,7 @@ async function select(key: Model) {
 async function classify(key: Model, sample: Sample) {
   const classifier = await select(key);
   const { shape, dtype } = classifier.getInputDetails()[0];
-  const pixels = shape[1] === 160 ? sample.crop : sample.full;
+  const pixels = shape[1] === 160 ? sample.crop : key === "general" ? sample.full : (sample.detail || sample.full);
   if (dtype !== "uint8" || shape[1] * shape[2] * shape[3] !== pixels.length) throw new Error("Modelin görüntü biçimi uyuşmuyor.");
   const input = new Tensor(pixels, [...shape]);
   const labels = labelLists.get(key)!;
@@ -53,28 +53,25 @@ async function classify(key: Model, sample: Sample) {
 }
 async function analyze(samples: Sample[]) {
   const results: Guess[][] = samples.map(() => []);
-  const requests = new Map<Specialist, {index: number; weight: number}[]>();
+  const requests = new Map<Specialist, {index: number; automatic: boolean}[]>();
   for (const [index, sample] of samples.entries()) {
-    const mass = new Map<Specialist, number>();
-    for (const cat of await classify("general", sample)) {
+    const categories = await classify("general", sample);
+    for (const cat of categories) {
       const group = broadGroup(cat.index);
       if (!group || group === "other") continue;
       const name = generalName(cat.index, cat.label);
       if (name) results[index].push({name, group, score: cat.score});
-      if (group !== "animal") mass.set(group, (mass.get(group) || 0) + cat.score);
     }
-    const ranked = [...mass].sort((a,b) => b[1] - a[1]);
-    for (const [group, weight] of ranked.slice(0, 2)) {
-      if (weight < .12 || weight < ranked[0][1] * .35) continue;
+    for (const {group, automatic} of specialistsFor(categories)) {
       const matches = requests.get(group) || [];
-      matches.push({ index, weight: Math.min(1, weight) }); requests.set(group, matches);
+      matches.push({index, automatic}); requests.set(group, matches);
     }
   }
   for (const [group, matches] of requests) {
-    for (const {index, weight} of matches) {
+    for (const {index, automatic} of matches) {
       for (const cat of await classify(group, samples[index])) {
         const name = cat.label.split(" (")[0];
-        if (/^[A-Z][a-z-]+ [a-z][a-z-]+/.test(name)) results[index].push({name, group, score: cat.score * weight});
+        if (/^[A-Z][a-z-]+ [a-z][a-z-]+/.test(name)) results[index].push({name, group, score: cat.score, automatic});
       }
     }
   }

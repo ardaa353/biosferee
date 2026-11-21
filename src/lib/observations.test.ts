@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { confident, rankPhotos, broadGroup } from "./identification";
+import { specialistsFor } from "./species-ranking";
 import { contain } from "./photos";
 import { photoUrl } from "./photoUrls";
 describe("Fotoğraf ve taksonomi", () => {
@@ -29,4 +30,11 @@ describe("Fotoğraf ve taksonomi", () => {
     expect(broadGroup(324)).toBe("insect");
     expect(broadGroup(992)).toBe("fungus");
   });
+  it("ImageNet bitkiyi saksı veya manzara sandığında da bitki modelini çalıştırır", () => {
+    const groups = specialistsFor([{index: 884, score: .91}, {index: 988, score: .03}]);
+    expect(groups).toContainEqual({group: "plant", automatic: false});
+    expect(confident([{name: "Corylus avellana", group: "plant", score: .95, automatic: false}])).toBe(false);
+    expect(specialistsFor([{index: 88, score: .94}])).toEqual([{group: "bird", automatic: true}]);
+  });
+
 });

@@ -28,7 +28,7 @@ export async function identifyPhotos(files: File[], signal: AbortSignal, progres
   if (!pending.length) return rankPhotos(files.map(file => known.get(file) || []));
   signal.throwIfAborted();
   progress("Fotoğraflar cihazında inceleniyor. İlk analizde model dosyaları indiriliyor…");
-  const worker = new Worker("/identification/assets/litert-2.6.0/worker.js");
+  const worker = new Worker("/identification/assets/litert-2.6.0/worker.js?v=plants-2");
   const stopped = () => new DOMException("İptal edildi.", "AbortError");
   let fail: ((reason: Error) => void) | undefined;
   const abort = () => { worker.terminate(); fail?.(stopped()); };
@@ -36,10 +36,10 @@ export async function identifyPhotos(files: File[], signal: AbortSignal, progres
   try {
     for (let i = 0; i < pending.length; i += 4) {
       const batch = pending.slice(i, i + 4);
-      const inputs: {full: Uint8Array<ArrayBuffer>; crop: Uint8Array<ArrayBuffer>}[] = [];
+      const inputs: {full: Uint8Array<ArrayBuffer>; crop: Uint8Array<ArrayBuffer>; detail: Uint8Array<ArrayBuffer>}[] = [];
       for (const file of batch) {
         signal.throwIfAborted();
-        inputs.push(await withPhoto(file, image => ({full: pixels(image, 224, false), crop: pixels(image, 160, true)})));
+        inputs.push(await withPhoto(file, image => ({full: pixels(image, 224, false), crop: pixels(image, 160, true), detail: pixels(image, 224, true)})));
       }
       signal.throwIfAborted();
       const rows = await new Promise<Guess[][]>((resolve, reject) => {
@@ -50,7 +50,7 @@ export async function identifyPhotos(files: File[], signal: AbortSignal, progres
         };
         worker.onerror = event => reject(new Error(event.message || "Model başlatılamadı."));
         worker.onmessageerror = () => reject(new Error("Model yanıtı okunamadı."));
-        worker.postMessage(inputs, inputs.flatMap(x => [x.full.buffer, x.crop.buffer]));
+        worker.postMessage(inputs, inputs.flatMap(x => [x.full.buffer, x.crop.buffer, x.detail.buffer]));
       });
       batch.forEach((file,index) => known.set(file, rows[index]));
     }
