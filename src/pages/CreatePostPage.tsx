@@ -49,6 +49,9 @@ export function ObservationForm({ initial }: { initial?: BioPost }) {
     taxonomyOrigin.current = "manual";
     setTax(value);
   }
+  const fillCommonName = useCallback((species: string, commonName: string) => {
+    setTax(current => current.species === species && !current.commonName ? {...current, commonName} : current);
+  }, []);
   function resetAutomatic() {
     if (taxonomyOrigin.current === "model") {
       taxonomyOrigin.current = "empty";
@@ -279,7 +282,7 @@ export function ObservationForm({ initial }: { initial?: BioPost }) {
         {!unknown && <section>
           <h2 className="mb-3 font-serif text-2xl">Sistematik bilgiler</h2>
           <SpeciesAssistant files={files} location={hasLocation ? { lat, lng } : null}
-            onAutomatic={applyAutomatic} onChoose={selectTaxonomy} />
+            onAutomatic={applyAutomatic} onChoose={selectTaxonomy} onCommonName={fillCommonName} />
           <p className="mb-3 text-sm text-[#50665d]">Katalogda aramak için bilimsel adın en az iki harfini yaz. Bir takson seçtiğinde üst basamakları doldurulur.</p>
           <TaxonomyFields value={tax} select={hit => selectTaxonomy(hit.taxonomy)} edit={(key, value) => {
             taxonomyOrigin.current = "manual"; setTax(current => ({ ...current, [key]: value }));

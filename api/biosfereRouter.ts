@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { and, between, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { isCloudinaryImageUrl } from "./lib/cloudImages";
+import { speciesProfile } from "./lib/speciesProfiles";
 
 import {
   createRouter,
@@ -185,6 +186,8 @@ async function listPosts(viewerId?: number, postId?: number) {
 // ---------------------------------------------------------
 
 export const biosfereRouter = createRouter({
+  taxonProfiles: authedQuery.input(z.object({taxa: z.array(z.object({species: z.string().trim().min(2).max(200), kingdom: z.string().trim().max(100)})).min(1).max(5)}))
+    .query(({input}) => Promise.all(input.taxa.map(taxon => speciesProfile(taxon.species, taxon.kingdom)))),
   nearbySpecies: authedQuery.input(z.object({
     lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180),
     species: z.array(z.string().min(2).max(200)).min(1).max(4)
