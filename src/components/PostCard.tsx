@@ -1,6 +1,7 @@
 import PhotoGallery from "@/components/PhotoGallery";
 import { useState, type FormEvent } from "react";
-import { Link } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
+import { useAuth } from "@/lib/auth";
 import {
   CalendarDays,
   CircleHelp,
@@ -25,9 +26,11 @@ import {
 export default function PostCard({
   post,
   compact = false,
+  priority = false,
 }: {
   post: BioPost;
   compact?: boolean;
+  priority?: boolean;
 }) {
   const [reporting, setReporting] = useState(false);
   
@@ -39,12 +42,13 @@ export default function PostCard({
   const [message, setMessage] = useState("");
 
   const utils = trpc.useUtils();
-  const { data: currentUser } = trpc.biosfere.auth.me.useQuery();
+  const { user: currentUser } = useAuth();
+  const location = useLocation(), navigate = useNavigate();
 
   const like = trpc.biosfere.posts.toggleLike.useMutation({
     onSuccess: async () => {
       await Promise.all([
-        utils.biosfere.posts.list.invalidate(),
+        utils.biosfere.posts.invalidate(),
         utils.biosfere.posts.get.invalidate({ id: post.id }),
       ]);
     },
@@ -67,8 +71,9 @@ export default function PostCard({
   const deletePost = trpc.biosfere.posts.delete.useMutation({
     onSuccess: async () => {
       setMessage("Gönderi başarıyla silindi.");
+      if (location.pathname === `/gonderi/${post.id}`) navigate("/akis", {replace: true});
       await Promise.all([
-        utils.biosfere.posts.list.invalidate(),
+        utils.biosfere.posts.invalidate(),
         utils.biosfere.posts.get.invalidate({ id: post.id }),
       ]);
     },
@@ -95,7 +100,7 @@ export default function PostCard({
 
   return (
     <article
-      className="overflow-hidden border-b border-[#09352e]/15 pb-7"
+      className="observation-card overflow-hidden rounded-2xl border border-[#09352e]/10 bg-white p-4 shadow-[0_2px_8px_rgba(15,50,35,0.025)] sm:p-6"
       id={"gonderi-" + post.id}
     >
       <header className="mb-4 flex items-center gap-3">
@@ -106,7 +111,7 @@ export default function PostCard({
             <Link to={`/profil/${post.author.username}`} className="text-sm font-bold hover:underline hover:text-[#007f24]">
               {post.author.firstName} {post.author.lastName}
             </Link>
-            <p className="font-mono text-[11px] text-[#71807e]">@{post.author.username} · {post.author.reputation} itibar</p>
+            <p className="text-xs text-[#71807e]">@{post.author.username} · {post.author.reputation} itibar</p>
           </>}
         </div>
 
@@ -161,18 +166,18 @@ export default function PostCard({
         </div>
       </header>
 
-      <PhotoGallery images={post.images} alt={post.commonName || post.species || "Canlı gözlemi"} />
+      <PhotoGallery priority={priority} images={post.images} alt={post.commonName || post.species || "Canlı gözlemi"} />
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="mb-1 flex items-center gap-2">
             {post.status === "unknown" ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-[#a96d15]/30 bg-[#f2e5c9] px-2.5 py-1 font-mono text-[10px] font-semibold uppercase text-[#78500f]">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[#a96d15]/30 bg-[#f2e5c9] px-2.5 py-1 font-mono text-xs font-semibold uppercase text-[#78500f]">
                 <CircleHelp size={13} />
                 Türü bilinmiyor
               </span>
             ) : (
-              <span className="font-mono text-[10px] font-semibold uppercase tracking-[.14em] text-[#007f24]">
+              <span className="font-mono text-xs font-semibold uppercase tracking-[.14em] text-[#007f24]">
                 {post.kingdom} / türü belirtilmiş gözlem
               </span>
             )}
@@ -199,6 +204,8 @@ export default function PostCard({
             like.mutate({ postId: post.id });
           }}
           disabled={like.isPending}
+          aria-pressed={post.liked}
+          aria-label={`${post.liked ? "Beğeniyi kaldır" : "Gözlemi beğen"}: ${post.likeCount} beğeni`}
           className={cn(
             "flex min-h-11 cursor-pointer items-center gap-2 rounded-full border px-4 text-sm font-semibold transition",
             post.liked
@@ -222,7 +229,7 @@ export default function PostCard({
         </div>
       )}
 
-      <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 font-mono text-[11px] text-[#5f7169]">
+      <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs text-[#5f7169]">
         <span className="inline-flex items-center gap-1.5">
           <MapPin size={14} />
           {post.locality}, {post.city}

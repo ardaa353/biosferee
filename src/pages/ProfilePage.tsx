@@ -7,13 +7,14 @@ import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/lib/auth";
 import { errorMessage } from "@/lib/utils"; 
 import PostCard from "@/components/PostCard";
-import { Avatar, Empty, Field, Loading, buttonClass, inputClass, secondaryButton } from "@/components/BioUI";
+import { Avatar, Empty, Field, Loading, QueryError, buttonClass, inputClass, secondaryButton } from "@/components/BioUI";
 
 export default function ProfilePage() {
   const { username } = useParams(); 
   const { user: current, refresh, logout } = useAuth(); // Çıkış yapma fonksiyonunu (logout) auth'tan çekiyoruz
   const users = trpc.biosfere.users.list.useQuery(); 
   const posts = trpc.biosfere.posts.list.useQuery();
+  const utils = trpc.useUtils();
   const navigate = useNavigate(); // Yönlendirmeler için eklendi
   
   const profile = users.data?.find((u) => u.username === username); 
@@ -31,7 +32,7 @@ export default function ProfilePage() {
       setEditing(false); 
       setAvatar(undefined); setAvatarStatus("");
       users.refetch(); 
-      posts.refetch(); 
+      void utils.biosfere.posts.invalidate(); 
       refresh(); 
     } 
   });
@@ -41,7 +42,8 @@ export default function ProfilePage() {
     onSuccess: () => {
       logout(); // Hesap silindikten sonra çıkış yaptır
       navigate("/"); // Ana sayfaya gönder
-    }
+    },
+    onError: error => setAvatarStatus(errorMessage(error)),
   });
   
   async function chooseAvatar(file?: File) {
@@ -55,13 +57,14 @@ export default function ProfilePage() {
     finally { setAvatarBusy(false); }
   }
 
+  if (users.isError || posts.isError) return <QueryError retry={() => {void users.refetch(); void posts.refetch();}} />;
   if (users.isLoading || posts.isLoading) return <Loading />;
   if (!profile) return <Empty title="Kullanıcı bulunamadı" text="Bu profil bağlantısı geçersiz olabilir." />;
   
   const own = (posts.data ?? []).filter((p) => p.status !== "removed" && p.author.id === profile.id);
   const collabs = (posts.data ?? []).filter((p) => p.status !== "removed" && p.collaborators.some((c) => c.id === profile.id));
   const shown = tab === "collabs" ? collabs : own;
-  const species = [...new Map(own.filter((p) => p.species).map((p) => [p.species, p])).values()];
+  const species = [...new Map(own.filter((p) => p.status === "verified" && p.species).map((p) => [p.species, p])).values()];
   
   async function submit(e: FormEvent) { 
     e.preventDefault(); 
@@ -109,13 +112,13 @@ export default function ProfilePage() {
               </Link>
               
               <button 
-                onClick={() => logout()} 
+                onClick={() => void logout()} 
                 className={`${secondaryButton} gap-2 bg-gray-100 hover:bg-gray-200 border-none`}
               >
                 <LogOut size={15} /> Çıkış Yap
               </button>
 
-              {current.role === "admin" && (
+              {current.role !== "user" && (
                 <Link to="/admin" className={`${secondaryButton} gap-2 bg-[#09352e] text-white border-none hover:bg-[#09352e]/90`}>
                   <ShieldCheck size={15} /> Yönetim Merkezi
                 </Link>
@@ -129,7 +132,7 @@ export default function ProfilePage() {
         <form onSubmit={submit} className="my-6 rounded-xl border border-[#09352e]/15 bg-[#fdfefb] p-5">
           <div className="grid gap-4 sm:grid-cols-[1fr_1fr]">
             <Field label="Biyografi">
-              <textarea className={inputClass} value={bio} onChange={(e) => setBio(e.target.value)} required />
+              <textarea minLength={3} maxLength={1000} className={inputClass} value={bio} onChange={(e) => setBio(e.target.value)} required />
             </Field>
     
             <div>

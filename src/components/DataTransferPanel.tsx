@@ -86,7 +86,7 @@ export default function DataTransferPanel() {
       }
       await finish.mutateAsync({id: job.current});
       job.current = null; uploads.current.clear();
-      await Promise.all([utils.biosfere.posts.list.invalidate(), utils.biosfere.users.list.invalidate()]);
+      await Promise.all([utils.biosfere.posts.invalidate(), utils.biosfere.users.list.invalidate()]);
       setStatus(done + " gönderi kaydedildi. Gönderen " + (author === "system" ? "BioSfere" : users.data?.find(user => String(user.id) === author)?.username || author) + ".");
     } catch (e) {
       setError(errorMessage(e));

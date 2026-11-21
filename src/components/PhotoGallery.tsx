@@ -3,11 +3,11 @@ import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { photoSources, photoUrl } from "@/lib/photoUrls";
 
-function Picture({ url, alt, expanded = false }: { url: string; alt: string; expanded?: boolean }) {
+function Picture({ url, alt, expanded = false, priority = false }: { url: string; alt: string; expanded?: boolean; priority?: boolean }) {
   const [failed, setFailed] = useState<"derivative" | "original" | null>(null);
   if (failed === "original") return <span className="self-center text-center text-sm" role="status">Fotoğraf yüklenemedi.</span>;
   const widths = expanded ? [800, 1280, 1920, 2560, 3840] : [400, 720, 1080, 1600];
-  return <img alt={alt} draggable={false} decoding="async" loading={expanded ? "eager" : "lazy"}
+  return <img alt={alt} draggable={false} decoding="async" loading={expanded || priority ? "eager" : "lazy"} fetchPriority={priority ? "high" : "auto"}
     src={failed ? url : photoUrl(url, expanded ? 1920 : 720)}
     srcSet={failed ? undefined : photoSources(url, widths)}
     sizes={expanded ? "100vw" : "(max-width: 768px) 100vw, 760px"}
@@ -15,7 +15,7 @@ function Picture({ url, alt, expanded = false }: { url: string; alt: string; exp
     onError={() => setFailed(!failed && photoUrl(url, widths[0]) !== url ? "derivative" : "original")} />;
 }
 
-export default function PhotoGallery({ images, alt }: { images: { url: string }[]; alt: string }) {
+export default function PhotoGallery({ images, alt, priority = false }: { images: { url: string }[]; alt: string; priority?: boolean }) {
   const [slide, setSlide] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -48,7 +48,7 @@ export default function PhotoGallery({ images, alt }: { images: { url: string }[
   return <div className="mb-5">
     <div className="group relative aspect-[4/3] overflow-hidden rounded-xl bg-[#dfe7df] sm:aspect-[16/10]">
       <button type="button" ref={trigger} className="grid h-full w-full cursor-zoom-in" aria-label={alt + " · Fotoğrafı büyüt"} onClick={() => setExpanded(true)}>
-        <Picture key={url} url={url} alt={alt} />
+        <Picture key={url} url={url} alt={alt} priority={priority} />
       </button>
       {controls(false)}
     </div>

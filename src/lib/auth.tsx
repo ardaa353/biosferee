@@ -1,9 +1,9 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
-import { trpc } from "@/providers/trpc";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { trpc, queryClient } from "@/providers/trpc";
 import type { CurrentUser } from "./types";
 
 type AuthValue = {
-  user: CurrentUser | null; loading: boolean;
+  user: CurrentUser | null; loading: boolean; error: boolean;
   login: (identifier: string, password: string) => Promise<void>;
   register: (input: { firstName: string; lastName: string; username: string; email: string; phone: string; password: string; bio: string }) => Promise<void>;
   logout: () => Promise<void>; refresh: () => void;
@@ -17,23 +17,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const registerMutation = trpc.biosfere.auth.register.useMutation();
   const logoutMutation = trpc.biosfere.auth.logout.useMutation();
   const utils = trpc.useUtils();
+  useEffect(() => {
+    if (token && me.isSuccess && me.data === null) {
+      localStorage.removeItem("biosfere_session"); setToken(null); queryClient.clear();
+    }
+  }, [token, me.isSuccess, me.data]);
+  useEffect(() => {
+    const synchronize = (event: StorageEvent) => {
+      if (event.key !== "biosfere_session") return;
+      void queryClient.cancelQueries().then(() => {queryClient.clear(); setToken(event.newValue);});
+    };
+    window.addEventListener("storage", synchronize);
+    return () => window.removeEventListener("storage", synchronize);
+  }, []);
   const value = useMemo<AuthValue>(() => ({
-    user: token ? me.data ?? null : null, loading: Boolean(token) && me.isLoading,
+    user: token ? me.data ?? null : null, loading: Boolean(token) && me.isLoading, error: Boolean(token) && me.isError,
     login: async (identifier, password) => {
       const result = await loginMutation.mutateAsync({ identifier, password });
-      localStorage.setItem("biosfere_session", result.token); setToken(result.token);
-      await utils.biosfere.auth.me.invalidate();
+      await queryClient.cancelQueries(); queryClient.clear();
+      localStorage.setItem("biosfere_session", result.token);
+      utils.biosfere.auth.me.setData(undefined, result.user); setToken(result.token);
     },
     register: async (input) => {
       const result = await registerMutation.mutateAsync(input);
-      localStorage.setItem("biosfere_session", result.token); setToken(result.token);
-      await utils.biosfere.auth.me.invalidate();
+      await queryClient.cancelQueries(); queryClient.clear();
+      localStorage.setItem("biosfere_session", result.token);
+      utils.biosfere.auth.me.setData(undefined, result.user); setToken(result.token);
     },
     logout: async () => { try { if (token) await logoutMutation.mutateAsync(); } finally {
-      localStorage.removeItem("biosfere_session"); setToken(null); utils.biosfere.invalidate();
+      localStorage.removeItem("biosfere_session"); setToken(null);
+      await queryClient.cancelQueries(); queryClient.clear();
     } },
     refresh: () => { utils.biosfere.auth.me.invalidate(); utils.biosfere.users.list.invalidate(); },
-  }), [token, me.data, me.isLoading]);
+  }), [token, me.data, me.isLoading, me.isError]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 export function useAuth() { const value = useContext(AuthContext); if (!value) throw new Error("AuthProvider missing"); return value; }

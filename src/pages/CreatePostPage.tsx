@@ -162,7 +162,7 @@ export function ObservationForm({ initial }: { initial?: BioPost }) {
         ? await update.mutateAsync({ ...payload, id: initial.id, keptImageIds: keptImages.map(image => image.id) })
         : await create.mutateAsync(payload);
       await Promise.all([
-        utils.biosfere.posts.list.invalidate(),
+        utils.biosfere.posts.invalidate(),
         utils.biosfere.posts.get.invalidate({ id: result.id }),
         utils.biosfere.users.list.invalidate(),
       ]);

@@ -2,7 +2,8 @@ import { prepareImageCleanup, queueCloudImages, kickCloudImageCleanup } from "./
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, between, desc, eq, inArray, ne, sql } from "drizzle-orm";
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
+import { promisify } from "node:util";
 import { isCloudinaryImageUrl } from "./lib/cloudImages";
 import { speciesProfile } from "./lib/speciesProfiles";
 
@@ -72,15 +73,17 @@ const observationInput = z.object({
 // ŞİFRE İŞLEMLERİ
 // ---------------------------------------------------------
 
-function hashPassword(password: string) {
+const deriveKey = promisify(scrypt);
+async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
-  return `${salt}:${scryptSync(password, salt, 64).toString("hex")}`;
+  const key = await deriveKey(password, salt, 64) as Buffer;
+  return `${salt}:${key.toString("hex")}`;
 }
 
-function verifyPassword(password: string, stored: string) {
+async function verifyPassword(password: string, stored: string) {
   const [salt, key] = stored.split(":");
   if (!salt || !key) return false;
-  const candidate = scryptSync(password, salt, 64);
+  const candidate = await deriveKey(password, salt, 64) as Buffer;
   const actual = Buffer.from(key, "hex");
   return candidate.length === actual.length && timingSafeEqual(candidate, actual);
 }
@@ -132,7 +135,7 @@ async function createSession(userId: number) {
 async function reputations(ids: number[]) {
   if (!ids.length) return new Map<number, number>();
   const rows = await getDb().select({ id: posts.authorId, total: sql<number>`count(*)` })
-    .from(likes).innerJoin(posts, eq(likes.postId, posts.id)).where(inArray(posts.authorId, ids)).groupBy(posts.authorId);
+    .from(likes).innerJoin(posts, eq(likes.postId, posts.id)).where(and(inArray(posts.authorId, ids), ne(posts.status, "removed"))).groupBy(posts.authorId);
   return new Map(rows.map(row => [row.id, Number(row.total)]));
 }
 
@@ -152,10 +155,18 @@ function byPost<T>(rows: T[], postId: (row: T) => number) {
   return grouped;
 }
 
-async function listPosts(viewerId?: number, postId?: number) {
+type FeedOptions = {status: "verified" | "unknown"; kingdom?: string; sort: "newest" | "reputation"; cursor: number; limit: number};
+async function listPosts(viewerId?: number, postId?: number, feed?: FeedOptions) {
   const db = getDb();
-  const rows = await db.select({ post: posts, author: users }).from(posts).leftJoin(users, eq(users.id, posts.authorId))
-    .where(postId === undefined ? undefined : eq(posts.id, postId)).orderBy(desc(posts.createdAt));
+  const scores = db.select({authorId: posts.authorId, total: sql<number>`count(*)`.as("total")}).from(likes)
+    .innerJoin(posts, eq(likes.postId, posts.id)).where(ne(posts.status, "removed")).groupBy(posts.authorId).as("author_scores");
+  let selection = db.select({ post: posts, author: users }).from(posts).leftJoin(users, eq(users.id, posts.authorId))
+    .where(and(ne(posts.status, "removed"), postId === undefined ? undefined : eq(posts.id, postId),
+      feed ? eq(posts.status, feed.status) : undefined, feed?.kingdom ? eq(posts.kingdom, feed.kingdom) : undefined)).$dynamic();
+  if (feed?.sort === "reputation") selection = selection.leftJoin(scores, eq(scores.authorId, posts.authorId));
+  selection = selection.orderBy(...(feed?.sort === "reputation" ? [desc(sql`coalesce(${scores.total}, 0)`), desc(posts.createdAt), desc(posts.id)] : [desc(posts.createdAt), desc(posts.id)]));
+  if (feed) selection = selection.limit(feed.limit + 1).offset(feed.cursor);
+  const rows = await selection;
   if (!rows.length) return [];
   const ids = rows.map(row => row.post.id);
   const [images, reactions, partners, rep] = await Promise.all([
@@ -190,7 +201,7 @@ export const biosfereRouter = createRouter({
     .query(({input}) => Promise.all(input.taxa.map(taxon => speciesProfile(taxon.species, taxon.kingdom)))),
   nearbySpecies: authedQuery.input(z.object({
     lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180),
-    species: z.array(z.string().min(2).max(200)).min(1).max(4)
+    species: z.array(z.string().min(2).max(200)).min(1).max(5)
   })).query(async ({input}) => {
     const rows = await getDb().selectDistinct({ name: posts.species }).from(posts).where(and(
       eq(posts.status, "verified"), inArray(posts.species, input.species),
@@ -238,7 +249,7 @@ export const biosfereRouter = createRouter({
 
         const [{ id }] = await db
           .insert(users)
-          .values({ firstName: input.firstName, lastName: input.lastName, username: input.username, email: input.email, phone: input.phone ?? "", passwordHash: hashPassword(input.password), role, bio: input.bio || "" })
+          .values({ firstName: input.firstName, lastName: input.lastName, username: input.username, email: input.email, phone: input.phone ?? "", passwordHash: await hashPassword(input.password), role, bio: input.bio || "" })
           .$returningId();
 
         const [user] = await db.select().from(users).where(eq(users.id, id));
@@ -256,7 +267,7 @@ export const biosfereRouter = createRouter({
         const [mailUser] = user ? [] : await db.select().from(users).where(eq(users.email, identifier)).limit(1);
         const found = user ?? mailUser;
 
-        if (!found || !verifyPassword(input.password, found.passwordHash)) {
+        if (!found || !await verifyPassword(input.password, found.passwordHash)) {
           throw new TRPCError({ code: "UNAUTHORIZED", message: "Kullanıcı adı, e-posta veya şifre hatalı." });
         }
 
@@ -301,7 +312,7 @@ export const biosfereRouter = createRouter({
       }))
       .mutation(async ({ ctx, input }) => {
         const db = getDb();
-        const updates: any = {};
+        const updates: Partial<typeof users.$inferInsert> = {};
 
         if (input.email && input.email !== ctx.user.email) {
           const existingMail = await db.select({ id: users.id }).from(users).where(eq(users.email, input.email)).limit(1);
@@ -312,7 +323,7 @@ export const biosfereRouter = createRouter({
         }
 
         if (input.phone) updates.phone = input.phone;
-        if (input.password) updates.passwordHash = hashPassword(input.password);
+        if (input.password) updates.passwordHash = await hashPassword(input.password);
 
         if (Object.keys(updates).length > 0) {
           await db.update(users).set(updates).where(eq(users.id, ctx.user.id));
@@ -380,6 +391,26 @@ export const biosfereRouter = createRouter({
   // GÖNDERİLER
   // -------------------------------------------------------
   posts: createRouter({
+    summary: publicQuery.query(async () => {
+      const [row] = await getDb().select({
+        verified: sql<number>`coalesce(sum(${posts.status} = 'verified'), 0)`,
+        unknown: sql<number>`coalesce(sum(${posts.status} = 'unknown'), 0)`,
+        species: sql<number>`count(distinct case when ${posts.status} = 'verified' then nullif(${posts.species}, '') end)`,
+        cities: sql<number>`count(distinct nullif(${posts.city}, ''))`,
+      }).from(posts).where(ne(posts.status, "removed"));
+      return {verified: Number(row.verified), unknown: Number(row.unknown), species: Number(row.species), cities: Number(row.cities)};
+    }),
+    feed: authedQuery.input(z.object({
+      status: z.enum(["verified", "unknown"]).default("verified"),
+      kingdom: z.string().trim().max(100).optional(),
+      sort: z.enum(["newest", "reputation"]).default("newest"),
+      cursor: z.number().int().min(0).max(10_000_000).nullish(),
+      limit: z.number().int().min(1).max(30).default(12),
+    })).query(async ({ctx, input}) => {
+      const cursor = input.cursor ?? 0;
+      const rows = await listPosts(ctx.user.id, undefined, {...input, cursor});
+      return {items: rows.slice(0, input.limit), nextCursor: rows.length > input.limit ? cursor + input.limit : null};
+    }),
     list: publicQuery.query(async ({ ctx }) => {
       const result = await listPosts(ctx.user?.id);
       return result.sort(
@@ -485,18 +516,15 @@ export const biosfereRouter = createRouter({
       .input(z.object({ postId: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const db = getDb();
-        const [existing] = await db
-          .select()
-          .from(likes)
-          .where(and(eq(likes.postId, input.postId), eq(likes.userId, ctx.user.id)))
-          .limit(1);
-
-        if (existing) {
-          await db.delete(likes).where(eq(likes.id, existing.id));
-        } else {
-          await db.insert(likes).values({ postId: input.postId, userId: ctx.user.id });
-        }
-        return { liked: !existing };
+        return db.transaction(async tx => {
+          const [post] = await tx.select({id: posts.id, status: posts.status}).from(posts).where(eq(posts.id, input.postId)).limit(1).for("update");
+          if (!post || post.status === "removed") throw new TRPCError({code: "NOT_FOUND", message: "Gönderi bulunamadı."});
+          const [existing] = await tx.select({id: likes.id}).from(likes)
+            .where(and(eq(likes.postId, input.postId), eq(likes.userId, ctx.user.id))).limit(1);
+          if (existing) await tx.delete(likes).where(eq(likes.id, existing.id));
+          else await tx.insert(likes).values({postId: input.postId, userId: ctx.user.id});
+          return {liked: !existing};
+        });
       }),
 
     report: authedQuery

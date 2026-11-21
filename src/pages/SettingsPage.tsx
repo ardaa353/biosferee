@@ -104,7 +104,7 @@ export default function SettingsPage() {
     }
 
     if (password.trim()) {
-      payload.password = password.trim();
+      payload.password = password;
     }
 
     if (Object.keys(payload).length === 0) {

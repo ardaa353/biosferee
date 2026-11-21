@@ -5,12 +5,13 @@ import { BrowserRouter } from 'react-router'
 import './index.css'
 import { TRPCProvider } from "@/providers/trpc"
 import App from './App.tsx'
+import ErrorBoundary from '@/components/ErrorBoundary'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <TRPCProvider>
-        <App />
+        <ErrorBoundary><App /></ErrorBoundary>
       </TRPCProvider>
     </BrowserRouter>
   </StrictMode>,

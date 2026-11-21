@@ -4,6 +4,7 @@ import { ranks } from "../contracts/taxonomy";
 import { searchCatalog } from "./lib/catalog";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { compress } from "hono/compress";
 import type { HttpBindings } from "@hono/node-server";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "./router";
@@ -14,6 +15,13 @@ import { handleClientLog } from "./lib/clientlog";
 import { REQUEST_ID_HEADER, runWithRequestId } from "./lib/requestcontext";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
+if (env.isProduction) app.use("*", compress({threshold: 2048, contentTypeFilter: /^(text\/|application\/(json|javascript))/}));
+app.use("*", async (c, next) => {
+  await next();
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("Referrer-Policy", "strict-origin-when-cross-origin");
+  if (c.req.path.startsWith("/api/trpc")) c.header("Cache-Control", "private, no-store");
+});
 
 // One middleware for both halves of request observability, because they need the
 // same scope and the same id:

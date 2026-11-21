@@ -1,5 +1,5 @@
 import { createTRPCReact } from "@trpc/react-query";
-import { httpBatchLink } from "@trpc/client";
+import { httpBatchLink, httpLink, splitLink, TRPCClientError } from "@trpc/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import superjson from "superjson";
 import type { AppRouter } from "../../api/router";
@@ -7,23 +7,25 @@ import type { ReactNode } from "react";
 
 export const trpc = createTRPCReact<AppRouter>();
 
-const queryClient = new QueryClient();
+export const queryClient = new QueryClient({defaultOptions: {queries: {
+  staleTime: 45_000,
+  refetchOnWindowFocus: false,
+  retry: (attempt, error) => attempt < 1 && !(error instanceof TRPCClientError && ["UNAUTHORIZED", "FORBIDDEN", "BAD_REQUEST", "NOT_FOUND"].includes(error.data?.code)),
+}}});
+const transport = {
+  url: "/api/trpc", transformer: superjson,
+  headers() {
+    const token = localStorage.getItem("biosfere_session");
+    return token ? {authorization: `Bearer ${token}`} : {};
+  },
+  fetch(input: RequestInfo | URL, init?: RequestInit) {
+    return globalThis.fetch(input, {...init, credentials: "include"});
+  },
+};
 const trpcClient = trpc.createClient({
   links: [
-    httpBatchLink({
-      url: "/api/trpc",
-      transformer: superjson,
-      headers() {
-        const token = localStorage.getItem("biosfere_session");
-        return token ? { authorization: `Bearer ${token}` } : {};
-      },
-      fetch(input, init) {
-        return globalThis.fetch(input, {
-          ...(init ?? {}),
-          credentials: "include",
-        });
-      },
-    }),
+    splitLink({condition: operation => operation.path === "biosfere.taxonProfiles",
+      true: httpLink(transport), false: httpBatchLink({...transport, maxURLLength: 6000, maxItems: 8})}),
   ],
 });
 

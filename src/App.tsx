@@ -1,7 +1,7 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router";
 import { AuthProvider, useAuth } from "@/lib/auth";
-import { Loading, Logo } from "@/components/BioUI";
+import { Loading, Logo, QueryError } from "@/components/BioUI";
 import AppShell from "@/components/AppShell";
 import { LoginPage, RegisterPage } from "@/pages/AuthPages";
 import { FeedPage, UnknownPage } from "@/pages/FeedPages";
@@ -17,8 +17,9 @@ const AdminPage = lazy(() => import("@/pages/AdminPage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage")); 
 
 function Protected() { 
-  const { user, loading } = useAuth(); 
+  const { user, loading, error, refresh } = useAuth(); 
   if (loading) return <div className="grid min-h-dvh place-items-center"><Loading label="BioSfere açılıyor…" /></div>; 
+  if (error && !user) return <main className="mx-auto max-w-lg px-5 pt-20"><QueryError retry={refresh} /></main>;
   return user ? <AppShell /> : <Navigate to="/giris" replace />; 
 }
 

@@ -1,24 +1,27 @@
 import { photoUrl } from "@/lib/photoUrls";
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useDeferredValue, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { ArrowUpRight, MapPin, Search } from "lucide-react";
+import { MapPin, Search } from "lucide-react";
 import { trpc } from "@/providers/trpc";
-import BioMap from "@/components/BioMap";
-import { Avatar, Empty, Loading, PageHeading, inputClass } from "@/components/BioUI";
-import type { BioPost } from "@/lib/types";
+const BioMap = lazy(() => import("@/components/BioMap"));
+import { validCoordinates } from "@/lib/geography";
+import { buildTaxonomyTree } from "@/lib/taxonomyTree";
+import { TaxonomyBranch } from "@/components/TaxonomyTree";
+import { Avatar, Empty, Loading, PageHeading, QueryError, inputClass, secondaryButton } from "@/components/BioUI";
+
 
 export function MapPage() {
   const query = trpc.biosfere.posts.list.useQuery();
   const [filter, setFilter] = useState("all");
   
   const posts = (query.data ?? []).filter((p) => {
-    if (p.status === "removed") return false;
+    if (p.status === "removed" || !validCoordinates(p)) return false;
     if (filter === "all") return true;
     if (filter === "unknown") return p.status === "unknown";
     return p.kingdom === filter;
   });
 
-  const filterOptions = ["all", "Animalia", "Plantae", "Fungi", "Bacteria", "Protista", "unknown"];
+  const filterOptions = ["all", "Animalia", "Plantae", "Fungi", "Bacteria", "Protista", "Archaea", "unknown"];
 
   return (
     <div>
@@ -44,14 +47,14 @@ export function MapPage() {
         ))}
       </div>
       
-      {query.isLoading ? (
+      {query.isError ? <QueryError retry={() => query.refetch()} /> : query.isLoading ? (
         <Loading />
       ) : (
         <div className="overflow-hidden rounded-xl border border-[#09352e]/15">
-          <BioMap posts={posts} />
+          <Suspense fallback={<Loading label="Harita açılıyor…" />}><BioMap posts={posts} /></Suspense>
         </div>
       )}
-      <p className="mt-3 font-mono text-[11px] text-[#71807e]">
+      <p className="mt-3 font-mono text-xs text-[#71807e]">
         {posts.length} gözlem noktası gösteriliyor · Harita altlığı Esri / OpenStreetMap katkıcıları
       </p>
     </div>
@@ -59,14 +62,15 @@ export function MapPage() {
 }
 
 export function SearchPage() {
-  const postsQuery = trpc.biosfere.posts.list.useQuery();
-  const usersQuery = trpc.biosfere.users.list.useQuery();
-  
   const [term, setTerm] = useState("");
+  const deferredTerm = useDeferredValue(term.trim());
+  const postsQuery = trpc.biosfere.posts.list.useQuery(undefined, {enabled: deferredTerm.length >= 2});
+  const usersQuery = trpc.biosfere.users.list.useQuery(undefined, {enabled: deferredTerm.length >= 2});
+  const [visible, setVisible] = useState(60);
   const [mode, setMode] = useState<"all" | "city">("all");
   
   const results = useMemo(() => {
-    const q = term.trim().toLocaleLowerCase("tr-TR");
+    const q = deferredTerm.toLocaleLowerCase("tr-TR");
     const posts = (postsQuery.data ?? []).filter((p) => p.status === "verified");
     
     if (!q) return [];
@@ -75,7 +79,7 @@ export function SearchPage() {
       const matching = posts.filter((p) => p.city.toLocaleLowerCase("tr-TR").includes(q));
       const counts = new Map<string, number>();
       
-      posts.forEach((p) => p.species && counts.set(p.species, (counts.get(p.species) ?? 0) + 1));
+      posts.forEach((p) => p.species && counts.set(p.species, (counts.get(p.species) ?? 0) + p.images.length));
       return matching.sort((a, b) => (counts.get(a.species ?? "") ?? 0) - (counts.get(b.species ?? "") ?? 0));
     }
     
@@ -83,11 +87,11 @@ export function SearchPage() {
       [p.species, p.commonName, p.genus, p.family, p.city, p.author.username, p.author.firstName, p.author.lastName]
         .some((v) => v?.toLocaleLowerCase("tr-TR").includes(q))
     );
-  }, [postsQuery.data, term, mode]);
+  }, [postsQuery.data, deferredTerm, mode]);
   
-  const matchingUsers = term && mode === "all" 
+  const matchingUsers = deferredTerm.length >= 2 && mode === "all" 
     ? (usersQuery.data ?? []).filter((u) => 
-        `${u.firstName} ${u.lastName} ${u.username}`.toLocaleLowerCase("tr-TR").includes(term.toLocaleLowerCase("tr-TR"))
+        `${u.firstName} ${u.lastName} ${u.username}`.toLocaleLowerCase("tr-TR").includes(deferredTerm.toLocaleLowerCase("tr-TR"))
       ) 
     : [];
 
@@ -99,24 +103,24 @@ export function SearchPage() {
         description="Şehir kipinde sonuçlar, türün platformdaki fotoğraf sayısına göre en az kayıtlı olandan en çok kayıtlı olana doğru sıralanır." 
       />
       
-      <div className="relative">
-        <Search className="absolute left-4 top-4 text-[#007f24]" size={20} />
+      <div className="flex flex-col gap-3">
+        <div className="relative"><Search className="absolute left-4 top-4 text-[#007f24]" size={20} />
         <input 
-          autoFocus 
-          className={`${inputClass} min-h-14 pl-12 pr-32 text-base`} 
+          aria-label="Tür, kişi veya konum ara" 
+          className={`${inputClass} min-h-14 pl-12 text-base`} 
           value={term} 
-          onChange={(e) => setTerm(e.target.value)} 
+          onChange={(e) => {setTerm(e.target.value); setVisible(60);}} 
           placeholder={mode === "city" ? "Şehir yazın: Giresun, Van…" : "Tür, cins, kişi veya konum yazın…"} 
         />
-        <div className="absolute right-2 top-2 flex rounded-full bg-[#e4ebe3] p-1">
+        </div><div role="group" aria-label="Arama yöntemi" className="flex w-fit max-w-full rounded-full bg-[#e4ebe3] p-1">
           <button 
-            onClick={() => setMode("all")} 
+            onClick={() => {setMode("all"); setVisible(60);}} 
             className={`min-h-10 rounded-full px-3 text-xs font-semibold ${mode === "all" ? "bg-[#09352e] text-white" : ""}`}
           >
             Genel
           </button>
           <button 
-            onClick={() => setMode("city")} 
+            onClick={() => {setMode("city"); setVisible(60);}} 
             className={`min-h-10 rounded-full px-3 text-xs font-semibold ${mode === "city" ? "bg-[#09352e] text-white" : ""}`}
           >
             Şehir / nadirlik
@@ -124,12 +128,12 @@ export function SearchPage() {
         </div>
       </div>
       
-      {!term ? (
+      {deferredTerm.length < 2 ? (
         <div className="py-16 text-center">
           <p className="font-serif text-2xl">Ne arıyorsun?</p>
           <p className="mt-2 text-sm text-[#71807e]">Örneğin “Amanita”, “Felis” veya “Rize” ile başlayabilirsin.</p>
         </div>
-      ) : (
+      ) : postsQuery.isError || usersQuery.isError ? <QueryError retry={() => {void postsQuery.refetch(); void usersQuery.refetch();}} /> : postsQuery.isPending || usersQuery.isPending ? <Loading /> : (
         <div className="mt-8">
           {matchingUsers.length > 0 && (
             <section className="mb-8">
@@ -147,12 +151,12 @@ export function SearchPage() {
           
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-serif text-2xl">Gözlemler</h2>
-            <span className="font-mono text-[11px] text-[#71807e]">{results.length} kayıt</span>
+            <span className="font-mono text-xs text-[#71807e]">{results.length} kayıt</span>
           </div>
           
           {results.length ? (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {results.map((p, i) => (
+              {results.slice(0, visible).map((p, i) => (
                 <Link key={p.id} to={`/gonderi/${p.id}`} className="group overflow-hidden rounded-xl border border-[#09352e]/15 bg-[#fdfefb] transition hover:-translate-y-0.5 hover:border-[#007f24]/50">
                   {p.images[0] && (
                     <div className="aspect-[4/3] overflow-hidden">
@@ -165,9 +169,9 @@ export function SearchPage() {
                         <h3 className="font-serif text-xl">{p.commonName || p.species}</h3>
                         <p className="font-serif text-sm italic text-[#5f7169]">{p.species}</p>
                       </div>
-                      {mode === "city" && <span className="font-mono text-[10px] text-[#007f24]">#{i + 1}</span>}
+                      {mode === "city" && <span className="font-mono text-xs text-[#007f24]">#{i + 1}</span>}
                     </div>
-                    <p className="mt-3 flex items-center gap-1 font-mono text-[10px] text-[#71807e]">
+                    <p className="mt-3 flex items-center gap-1 font-mono text-xs text-[#71807e]">
                       <MapPin size={12} />{p.city} · {p.author.isSystem ? "BioSfere" : "@" + p.author.username}
                     </p>
                   </div>
@@ -177,107 +181,20 @@ export function SearchPage() {
           ) : (
             <Empty title="Eşleşen kayıt bulunamadı" text="Yazımı kontrol edin veya daha genel bir tür, cins ya da şehir adı deneyin." />
           )}
+          {results.length > visible && <button className={secondaryButton + " mt-6"} onClick={() => setVisible(value => value + 60)}>Daha fazla sonuç</button>}
         </div>
       )}
     </div>
   );
 }
 
-type TaxonTree = Record<string, Record<string, Record<string, Record<string, BioPost[]>>>>;
-
 export function TaxonomyPage() {
   const query = trpc.biosfere.posts.list.useQuery();
   const [term, setTerm] = useState("");
-  
-  const tree = useMemo(() => {
-    const result: TaxonTree = {};
-    const posts = (query.data ?? []).filter((p) => p.status === "verified");
-
-    posts.forEach((p) => {
-      const text = [p.kingdom, p.phylum, p.className, p.orderName, p.family, p.genus, p.species, p.commonName]
-        .join(" ")
-        .toLocaleLowerCase("tr-TR");
-        
-      if (term && !text.includes(term.toLocaleLowerCase("tr-TR"))) return;
-      
-      const k = p.kingdom ?? "Diğer";
-      const f = p.family ?? "Familya yok";
-      const g = p.genus ?? "Cins yok";
-      const s = p.species ?? "Tür yok";
-      
-      result[k] ??= {};
-      result[k][f] ??= {};
-      result[k][f][g] ??= {};
-      result[k][f][g][s] ??= [];
-      result[k][f][g][s].push(p);
-    });
-    
-    return result;
-  }, [query.data, term]);
-
-  return (
-    <div>
-      <PageHeading 
-        eyebrow="Alem → Familya → Cins → Tür" 
-        title="Sistematik şema" 
-        description="Doğrulanan her gözlem sınıflandırmadaki yerine otomatik eklenir. Dalları açın; cinse ait türleri ve gözlem kayıtlarını birlikte inceleyin." 
-      />
-      
-      <input 
-        className={`${inputClass} mb-7 max-w-lg`} 
-        value={term} 
-        onChange={(e) => setTerm(e.target.value)} 
-        placeholder="Şemada tür, cins veya familya ara…" 
-      />
-      
-      {query.isLoading ? (
-        <Loading />
-      ) : Object.keys(tree).length ? (
-        <div className="space-y-4">
-          {Object.entries(tree).map(([kingdom, families]) => (
-            <details key={kingdom} open className="rounded-xl border border-[#09352e]/20 bg-[#fdfefb] p-5">
-              <summary className="cursor-pointer font-serif text-3xl font-semibold">
-                {kingdom}<span className="ml-3 font-mono text-[11px] font-normal text-[#71807e]">ALEM</span>
-              </summary>
-              <div className="ml-2 mt-5 space-y-4 border-l border-[#85c093] pl-5">
-                {Object.entries(families).map(([family, genera]) => (
-                  <details key={family} open={Boolean(term)}>
-                    <summary className="min-h-11 cursor-pointer py-2 font-serif text-xl">
-                      {family}<span className="ml-2 font-mono text-[10px] text-[#71807e]">FAMİLYA</span>
-                    </summary>
-                    <div className="ml-2 mt-2 space-y-3 border-l border-[#09352e]/15 pl-5">
-                      {Object.entries(genera).map(([genus, species]) => (
-                        <details key={genus} open={Boolean(term)}>
-                          <summary className="min-h-11 cursor-pointer py-2 font-serif text-lg italic">
-                            {genus}<span className="ml-2 font-mono text-[10px] not-italic text-[#71807e]">CİNS</span>
-                          </summary>
-                          <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                            {Object.entries(species).flatMap(([sp, posts]) => 
-                              posts?.map((p) => (
-                                <Link key={p.id} to={`/gonderi/${p.id}`} className="group flex gap-3 rounded-lg border border-[#09352e]/10 p-3 hover:border-[#007f24]">
-                                  {p.images[0] && <img loading="lazy" decoding="async" src={photoUrl(p.images[0].url, 480)} onError={e => { if (e.currentTarget.src !== p.images[0].url) e.currentTarget.src = p.images[0].url; }} alt="" className="h-16 w-16 rounded-md object-cover" />}
-                                  <div className="min-w-0 flex-1">
-                                    <p className="font-serif text-lg">{p.commonName || p.species}</p>
-                                    <p className="truncate font-serif text-sm italic text-[#5f7169]">{sp}</p>
-                                    <p className="mt-1 font-mono text-[10px] text-[#71807e]">{p.city} · {posts.length} kayıt</p>
-                                  </div>
-                                  <ArrowUpRight size={16} />
-                                </Link>
-                              ))
-                            )}
-                          </div>
-                        </details>
-                      ))}
-                    </div>
-                  </details>
-                ))}
-              </div>
-            </details>
-          ))}
-        </div>
-      ) : (
-        <Empty title="Sistematik şema henüz boş" text="Tür bilgisi doğrulanmış ilk gözlemle birlikte şema otomatik oluşacak." />
-      )}
-    </div>
-  );
+  const search = useDeferredValue(term.trim());
+  const tree = useMemo(() => buildTaxonomyTree(query.data || [], search), [query.data, search]);
+  return <div><PageHeading eyebrow="Âlemden türe" title="Yaşamın sistematiği" description="Gözlemleri âlem, şube, sınıf, takım, familya, cins ve tür düzeyinde keşfet. Bir dalı açarak o gruptaki kayıtlara ulaş." />
+    <label className="mb-7 block max-w-lg"><span className="sr-only">Sistematik şemada ara</span><input className={inputClass} value={term} onChange={event => setTerm(event.target.value)} placeholder="Tür, cins veya familya ara…" /></label>
+    {query.isPending ? <Loading /> : query.isError ? <QueryError retry={() => query.refetch()} /> : tree.length ? <div className="space-y-4">{tree.map(node => <TaxonomyBranch key={node.name} node={node} searching={Boolean(search)} />)}</div> : <Empty title={search ? "Bu aramayla eşleşen kayıt yok" : "Sistematik şema henüz boş"} text={search ? "Daha genel bir tür, cins veya familya adı deneyebilirsin." : "Türü belirtilmiş gözlemler sınıflandırmadaki yerlerine otomatik eklenir."} />}
+  </div>;
 }

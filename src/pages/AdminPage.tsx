@@ -5,8 +5,9 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { Check, ShieldCheck, X, Trash2 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
+import { errorMessage } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
-import { Avatar, Loading, PageHeading, buttonClass, inputClass, secondaryButton } from "@/components/BioUI";
+import { Avatar, Loading, QueryError, PageHeading, buttonClass, inputClass, secondaryButton } from "@/components/BioUI";
 
 export default function AdminPage() {
   const { user } = useAuth(); 
@@ -14,18 +15,20 @@ export default function AdminPage() {
   const [workshopOpened, setWorkshopOpened] = useState(tab === "workshop");
   const [userSearch, setUserSearch] = useState("");
 
-  const users = trpc.biosfere.users.list.useQuery(); 
-  const overview = trpc.biosfere.moderation.overview.useQuery();
+  const utils = trpc.useUtils();
+  const canModerate = !!user && user.role !== "user";
+  const users = trpc.biosfere.users.list.useQuery(undefined, {enabled: canModerate && tab === "users"}); 
+  const overview = trpc.biosfere.moderation.overview.useQuery(undefined, {enabled: canModerate && (tab === "reports" || tab === "suggestions")});
   
-  const role = trpc.biosfere.users.setRole.useMutation({ onSuccess: () => users.refetch() }); 
-  const resolve = trpc.biosfere.moderation.resolveReport.useMutation({ onSuccess: () => { overview.refetch(); } }); 
-  const accept = trpc.biosfere.identification.accept.useMutation({ onSuccess: () => overview.refetch() });
+  const role = trpc.biosfere.users.setRole.useMutation({ onSuccess: () => {void users.refetch(); void utils.biosfere.posts.invalidate();} }); 
+  const resolve = trpc.biosfere.moderation.resolveReport.useMutation({ onSuccess: () => {void overview.refetch(); void utils.biosfere.posts.invalidate();} }); 
+  const accept = trpc.biosfere.identification.accept.useMutation({ onSuccess: () => {void overview.refetch(); void utils.biosfere.posts.invalidate();} });
   
   const deleteUser = trpc.biosfere.users.delete.useMutation({ 
-    onSuccess: () => users.refetch() 
+    onSuccess: () => {void users.refetch(); void utils.biosfere.posts.invalidate();} 
   });
   
-  if (!user || user.role === "user") return null;
+  if (!canModerate) return <QueryError retry={() => window.location.assign("/akis")} text="Bu sayfayı yalnızca yöneticiler ve moderatörler görüntüleyebilir." />;
   
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-8 md:py-8">
@@ -51,6 +54,9 @@ export default function AdminPage() {
         ))}
       </div>
 
+      {(role.error || resolve.error || accept.error || deleteUser.error) && <p role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">{errorMessage(role.error || resolve.error || accept.error || deleteUser.error)}</p>}
+      {overview.isError && (tab === "reports" || tab === "suggestions") && <QueryError retry={() => overview.refetch()} />}
+      {users.isError && tab === "users" && <QueryError retry={() => users.refetch()} />}
       {tab === "data" && user.role === "admin" && <Suspense fallback={<Loading />}><DataTransferPanel /></Suspense>}
       {workshopOpened && user.role === "admin" && <div hidden={tab !== "workshop"}><Suspense fallback={<Loading />}><ObservationWorkshop /></Suspense></div>}
       {overview.isLoading && tab !== "data" && tab !== "workshop" ? (
@@ -129,7 +135,7 @@ export default function AdminPage() {
           <input
             type="text"
             className={inputClass}
-            placeholder="Kullanıcı adı, isim, soyisim veya e-posta ile ara..."
+            placeholder="Kullanıcı adı, isim veya soyisim ile ara…"
             value={userSearch}
             onChange={(e) => setUserSearch(e.target.value)}
           />
@@ -152,8 +158,7 @@ export default function AdminPage() {
                       const term = userSearch.toLowerCase();
                       const fullName = `${u.firstName} ${u.lastName}`.toLowerCase();
                       const username = u.username.toLowerCase();
-                      const email = (u as any).email?.toLowerCase() || "";
-                      return fullName.includes(term) || username.includes(term) || email.includes(term);
+                      return fullName.includes(term) || username.includes(term);
                     })
                     .map((u) => (
                       <tr key={u.id} className="border-b border-[#09352e]/10 hover:bg-gray-50/50 transition-colors">
@@ -161,7 +166,7 @@ export default function AdminPage() {
                           <button 
                             className="text-[#a63f36] hover:text-[#8d302a] hover:bg-[#a63f36]/10 p-2 rounded-lg transition-colors disabled:opacity-50"
                             title="Kullanıcıyı Sil"
-                            disabled={user?.role !== "admin" || u.id === user.id}
+                            disabled={user?.role !== "admin" || u.id === user.id || deleteUser.isPending}
                             onClick={() => {
                               if (window.confirm(`${u.firstName} ${u.lastName} adlı kullanıcıyı kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz!`)) {
                                 deleteUser.mutate({ userId: u.id });
@@ -193,7 +198,7 @@ export default function AdminPage() {
                           <select 
                             className={`${inputClass} max-w-36 text-sm`} 
                             value={u.role} 
-                            disabled={user?.role !== "admin"} 
+                            disabled={user?.role !== "admin" || role.isPending} 
                             onChange={(e) => role.mutate({ userId: u.id, role: e.target.value as "user" | "moderator" | "admin" })}
                           >
                             <option value="user">Kullanıcı</option>

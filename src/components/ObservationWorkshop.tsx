@@ -162,7 +162,7 @@ export default function ObservationWorkshop() {
           begin: input => begin.mutateAsync(input), prepare: input => prepare.mutateAsync(input), commit: input => commit.mutateAsync(input), finish: input => finish.mutateAsync(input),
         }, session.current, signal, setStatus);
         setSaved(true); setNeedsRetry(false);
-        await Promise.all([utils.biosfere.posts.list.invalidate(), utils.biosfere.users.list.invalidate()]);
+        await Promise.all([utils.biosfere.posts.invalidate(), utils.biosfere.users.list.invalidate()]);
         setStatus(`${groups.length} gönderi ${author === "system" ? "BioSfere" : "@" + users.data?.find(user => String(user.id) === author)?.username} adına siteye eklendi.`);
       } catch (error) { setNeedsRetry(Boolean(session.current.jobId)); if (!session.current.jobId) snapshot.current = null; throw error; }
     });
