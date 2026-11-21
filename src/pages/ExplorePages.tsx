@@ -168,7 +168,7 @@ export function SearchPage() {
                       {mode === "city" && <span className="font-mono text-[10px] text-[#007f24]">#{i + 1}</span>}
                     </div>
                     <p className="mt-3 flex items-center gap-1 font-mono text-[10px] text-[#71807e]">
-                      <MapPin size={12} />{p.city} · @{p.author.username}
+                      <MapPin size={12} />{p.city} · {p.author.isSystem ? "BioSfere" : "@" + p.author.username}
                     </p>
                   </div>
                 </Link>

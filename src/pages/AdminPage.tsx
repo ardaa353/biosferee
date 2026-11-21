@@ -1,3 +1,5 @@
+import { lazy, Suspense } from "react";
+const DataTransferPanel = lazy(() => import("@/components/DataTransferPanel"));
 import { useState } from "react";
 import { Link } from "react-router";
 import { Check, ShieldCheck, X, Trash2 } from "lucide-react";
@@ -7,7 +9,7 @@ import { Avatar, Loading, PageHeading, buttonClass, inputClass, secondaryButton 
 
 export default function AdminPage() {
   const { user } = useAuth(); 
-  const [tab, setTab] = useState<"reports" | "suggestions" | "users">("reports"); 
+  const [tab, setTab] = useState<"reports" | "suggestions" | "users" | "data">("reports"); 
   const [userSearch, setUserSearch] = useState("");
 
   const users = trpc.biosfere.users.list.useQuery(); 
@@ -32,7 +34,7 @@ export default function AdminPage() {
       />
       
       <div className="mb-7 flex flex-wrap gap-2">
-        {(["reports", "suggestions", "users"] as const).map((t) => (
+        {(["reports", "suggestions", "users", ...(user.role === "admin" ? ["data" as const] : [])] as const).map((t) => (
           <button 
             key={t} 
             onClick={() => setTab(t)} 
@@ -42,12 +44,13 @@ export default function AdminPage() {
               ? `Raporlar (${overview.data?.reports.filter((r) => r.status === "pending").length ?? 0})` 
               : t === "suggestions" 
               ? `Tür önerileri (${overview.data?.suggestions.length ?? 0})` 
-              : "Kullanıcı yetkileri"}
+              : t === "data" ? "Veri aktarımı ve bulut" : "Kullanıcı yetkileri"}
           </button>
         ))}
       </div>
 
-      {overview.isLoading ? (
+      {tab === "data" && user.role === "admin" && <Suspense fallback={<Loading />}><DataTransferPanel /></Suspense>}
+      {overview.isLoading && tab !== "data" ? (
         <Loading />
       ) : tab === "reports" && (
         <section className="space-y-4">

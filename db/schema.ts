@@ -1,6 +1,6 @@
 import {
   mysqlTable, mysqlEnum, serial, varchar, text, timestamp, bigint,
-  double, int, index, uniqueIndex,
+  double, int, index, uniqueIndex, json,
 } from "drizzle-orm/mysql-core";
 
 export const users = mysqlTable("users", {
@@ -27,7 +27,7 @@ export const sessions = mysqlTable("sessions", {
 
 export const posts = mysqlTable("posts", {
   id: serial("id").primaryKey(),
-  authorId: bigint("author_id", { mode: "number", unsigned: true }).notNull(),
+  authorId: bigint("author_id", { mode: "number", unsigned: true }),
   description: text("description").notNull(),
   status: mysqlEnum("status", ["unknown", "verified", "removed"]).notNull().default("verified"),
   kingdom: varchar("kingdom", { length: 100 }),
@@ -65,6 +65,30 @@ export const cloudImageDeletions = mysqlTable("cloud_image_deletions", {
   lastError: varchar("last_error", { length: 500 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, t => ({ dueIdx: index("cloud_deletion_due_idx").on(t.nextAttemptAt) }));
+
+export const datasetImportJobs = mysqlTable("dataset_import_jobs", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  importerId: bigint("importer_id", { mode: "number", unsigned: true }).notNull(),
+  authorId: bigint("author_id", { mode: "number", unsigned: true }),
+  archiveId: varchar("archive_id", { length: 128 }).notNull(),
+  total: int("total", { unsigned: true }).notNull(),
+  state: varchar("state", { length: 20 }).notNull().default("active"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+export const datasetImportEntries = mysqlTable("dataset_import_entries", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  jobId: varchar("job_id", { length: 36 }).notNull(),
+  sourceId: varchar("source_id", { length: 128 }).notNull(),
+  postId: bigint("post_id", { mode: "number", unsigned: true }),
+  record: json("record").$type<import("../contracts/dataset").PortablePost>().notNull(),
+  publicIds: json("public_ids").$type<string[]>().notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, t => ({ jobIdx: index("dataset_entry_job_idx").on(t.jobId) }));
+export const importedObservationData = mysqlTable("imported_observation_data", {
+  postId: bigint("post_id", { mode: "number", unsigned: true }).primaryKey(),
+  source: json("source").$type<Record<string, unknown>>().notNull(),
+});
 
 export const likes = mysqlTable("likes", {
   id: serial("id").primaryKey(),

@@ -12,7 +12,7 @@ export function Avatar({ user, size = "md" }: { user?: { firstName: string; last
   const cls = size === "lg" ? "h-24 w-24 text-2xl" : size === "sm" ? "h-8 w-8 text-xs" : "h-11 w-11 text-sm";
   const url = user && "avatarUrl" in user ? user.avatarUrl : undefined;
   return <span className={`${cls} inline-grid shrink-0 place-items-center overflow-hidden rounded-full border border-[#09352e]/15 bg-[#d4e3d5] font-mono font-semibold text-[#09352e]`}>
-    {url ? <img src={url} alt="Profil fotoğrafı" className="h-full w-full object-cover" /> : user ? `${user.firstName[0]}${user.lastName[0]}` : <Leaf size={18} />}
+    {url ? <img src={url} alt="Profil fotoğrafı" className="h-full w-full object-cover" /> : user ? `${user.firstName[0] || ""}${user.lastName[0] || ""}` : <Leaf size={18} />}
   </span>;
 }
 export function Loading({ label = "Kayıtlar getiriliyor…" }: { label?: string }) { return <div className="flex min-h-48 items-center justify-center gap-3 text-sm text-[#50665d]"><LoaderCircle className="animate-spin" size={19} />{label}</div>; }

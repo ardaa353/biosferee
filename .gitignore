@@ -8,3 +8,12 @@ env
 /public/identification/assets/
 __pycache__/
 public/identification/worker.js
+
+/public/archive/
+/desktop/.venv/
+/desktop/.cache/
+/desktop/.runtime/
+/desktop/.bootstrap/
+/desktop/**/__pycache__/
+
+/public/downloads/

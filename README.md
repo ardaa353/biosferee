@@ -26,4 +26,13 @@ Sekiz görüntü modeli cihazın işlemcisinde bir Web Worker içinde çalışı
 
 Fotoğraf kaldırma, gönderi veya hesap silme, profil fotoğrafını değiştirme ve moderasyonla kaldırma işlemleri Cloudinary temizliği oluşturur. Silinecek dosya aynı MySQL işleminde kalıcı kuyruğa yazılır. Sunucu hemen temizliği başlatır ve başarısız işlemleri yeniden dener. Başka bir gönderi veya profil tarafından kullanılan aynı fotoğraf korunur. Cloudinary'nin silme yanıtı doğrulanır ve CDN geçersizleştirmesi istenir.
 
-Sunucu, `cloud_image_deletions` tablosunu ilk kullanımda otomatik oluşturur. Veritabanı kullanıcısının tablo oluşturma izni ve Render'da doğru `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `CLOUDINARY_CLOUD_NAME` değerleri gerekir. Önceki sürümlerde bulutta sahipsiz kalmış ve artık veritabanında adresi bulunmayan dosyalar bu kuyrukla geriye dönük bulunamaz.
+Sunucu, `cloud_image_deletions` tablosunu ilk kullanımda otomatik oluşturur. Veritabanı kullanıcısının tablo oluşturma izni ve Render'da doğru `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `CLOUDINARY_CLOUD_NAME` değerleri gerekir. Asıl dosyanın ardından otomatik yedekler de silinir; yalnızca `destroy` çağrısı yapmak Cloudinary yedek depolamasını boşaltmaz. Önceki silmelerden kalan yedekler admin panelinde listelenip dosya seçilerek temizlenebilir. Etkin bir dosya bu yedek temizleme yolu üzerinden silinmez.
+
+
+## Veri aktarımı ve masaüstü hazırlama
+
+Admin panelindeki **Veri aktarımı ve bulut** sekmesi profil fotoğraflarını dışarıda tutarak `data.json` + `photos/` içeren ZIP indirir. Şifresiz ZIP/RAR içe aktarımı mevcut kayıtlara ekleme yapar. Gönderen mevcut kullanıcılar arasından veya profil/itibar sahibi olmayan **BioSfere** olarak seçilir; kaynak yazar adı yalnızca kaynak metadata içinde korunur. Fotoğraflar dosya adlarıyla JSON kaydına bağlıdır. Yarım kalan aktarım açık sayfada tekrarlandığında tamamlanan kayıtlar yinelenmez; kaydedilmemiş yüklemeler iki saatten sonra temizlenir.
+
+[Python Tkinter Veri Atölyesi](desktop/README.md), fotoğrafları gruplandırır, yerel BioCLIP 2 ile her gruptaki bütün fotoğraflardan sistematik önerir, düzenlenebilir sonuçlar ve haritadan koordinat seçimi sağlar; aynı ZIP biçimini üretir. Admin panelinden uygulamanın kaynak ZIP'i de indirilebilir. Modelin ilk indirmesi büyüktür; sonraki analizler ücretli API veya kullanım kotası olmadan bilgisayarda çalışır.
+
+Aktarım tabloları ilk kullanımda oluşturulur ve `posts.author_id` anonim gönderici için nullable yapılır. Sunucunun MySQL `CREATE`/`ALTER` yetkisi ve Cloudinary sunucu anahtarları gerekir. Fotoğraflar admin tarayıcısından imzalı olarak doğrudan Cloudinary'ye gider, Render diski geçici arşiv deposu olarak kullanılmaz. Parolalar, oturumlar, e-posta/telefon ve profil fotoğrafları taşınabilir gözlem arşivine dahil edilmez.

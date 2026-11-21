@@ -1,8 +1,9 @@
+import { TRPCError } from "@trpc/server";
 import { createHash } from "node:crypto";
-import { asc, eq, lte, sql } from "drizzle-orm";
+import { asc, eq, lte, sql, like, or } from "drizzle-orm";
 import { cloudImageDeletions, postImages, users } from "../../db/schema";
 import { getDb } from "../queries/connection";
-import { destroyCloudImage, isCloudinaryImageUrl } from "./cloudImages";
+import { destroyCloudImage, isCloudinaryImageUrl, cloudPublicId, requireCloudinary } from "./cloudImages";
 import { log } from "./logger";
 
 type Transaction = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
@@ -32,7 +33,8 @@ export async function prepareImageCleanup(): Promise<void> {
 export async function queueCloudImages(tx: Transaction, urls: (string | null | undefined)[]) {
   for (const url of new Set(urls)) {
     if (!url || !isCloudinaryImageUrl(url)) continue;
-    const id = createHash("sha256").update(url).digest("hex");
+    try { requireCloudinary(); } catch (error) { throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? error.message : "Cloudinary ayarları eksik." }); }
+    const id = createHash("sha256").update(cloudPublicId(url) || url).digest("hex");
     await tx.insert(cloudImageDeletions).values({ id, fileKey: url }).onDuplicateKeyUpdate({ set: { id } });
   }
 }
@@ -46,10 +48,13 @@ async function processBatch() {
         .orderBy(asc(cloudImageDeletions.nextAttemptAt), asc(cloudImageDeletions.id))
         .limit(1).for("update");
       if (!job) return false;
-      // Another observation or profile may still use this exact uploaded file.
-      const [image] = await tx.select({ id: postImages.id }).from(postImages).where(eq(postImages.fileKey, job.fileKey)).limit(1);
-      const [avatar] = await tx.select({ id: users.id }).from(users).where(eq(users.avatarKey, job.fileKey)).limit(1);
-      if (image || avatar) {
+      const publicId = cloudPublicId(job.fileKey);
+      const tail = publicId?.split("/").at(-1) || "";
+      const pattern = "%/" + tail + "%";
+      const encodedPattern = "%/" + encodeURIComponent(tail) + "%";
+      const images = await tx.select({ url: postImages.fileKey }).from(postImages).where(or(like(postImages.fileKey, pattern), like(postImages.fileKey, encodedPattern)));
+      const avatars = await tx.select({ url: users.avatarKey }).from(users).where(or(like(users.avatarKey, pattern), like(users.avatarKey, encodedPattern)));
+      if (publicId && [...images, ...avatars].some(row => row.url && cloudPublicId(row.url) === publicId)) {
         await tx.delete(cloudImageDeletions).where(eq(cloudImageDeletions.id, job.id));
         return true;
       }
@@ -72,10 +77,11 @@ async function processBatch() {
 }
 
 export function kickCloudImageCleanup() {
-  if (running) return;
+  if (running) return running;
   running = processBatch().catch(error => {
     log.error("Cloud image cleanup failed", { error: error instanceof Error ? error.message : String(error) });
   }).finally(() => { running = undefined; });
+  return running;
 }
 
 export function startCloudImageCleanup() {

@@ -16,7 +16,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "prebuild": "npm run prepare:photos && node db/prepare-catalog.mjs",
-    "prepare:photos": "python3 scripts/prepare_models.py && node scripts/build-worker.mjs",
+    "prepare:photos": "python3 scripts/prepare_models.py && node scripts/build-worker.mjs && node scripts/prepare-archive.mjs && python3 scripts/prepare-desktop.py",
     "predev": "npm run prepare:photos && node db/prepare-catalog.mjs"
   },
   "dependencies": {
@@ -54,6 +54,7 @@
     "@trpc/react-query": "^11.8.1",
     "@trpc/server": "^11.8.1",
     "@types/leaflet": "^1.9.22",
+    "@zip.js/zip.js": "2.8.11",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -68,6 +69,7 @@
     "lucide-react": "^0.562.0",
     "mysql2": "^3.14.1",
     "next-themes": "^0.4.6",
+    "node-unrar-js": "2.0.2",
     "react": "^19.2.0",
     "react-day-picker": "^9.13.0",
     "react-dom": "^19.2.0",

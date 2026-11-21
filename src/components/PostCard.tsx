@@ -99,21 +99,15 @@ export default function PostCard({
       id={"gonderi-" + post.id}
     >
       <header className="mb-4 flex items-center gap-3">
-        <Link to={`/profil/${post.author.username}`}>
-          <Avatar user={post.author} />
-        </Link>
+        {post.author.isSystem ? <Avatar user={post.author} /> : <Link to={`/profil/${post.author.username}`}><Avatar user={post.author} /></Link>}
 
         <div className="min-w-0 flex-1">
-          <Link
-            to={`/profil/${post.author.username}`}
-            className="text-sm font-bold hover:underline hover:text-[#007f24] transition-colors"
-          >
-            {post.author.firstName} {post.author.lastName}
-          </Link>
-
-          <p className="font-mono text-[11px] text-[#71807e]">
-            @{post.author.username} · {post.author.reputation} itibar
-          </p>
+          {post.author.isSystem ? <p className="text-sm font-bold">BioSfere</p> : <>
+            <Link to={`/profil/${post.author.username}`} className="text-sm font-bold hover:underline hover:text-[#007f24]">
+              {post.author.firstName} {post.author.lastName}
+            </Link>
+            <p className="font-mono text-[11px] text-[#71807e]">@{post.author.username} · {post.author.reputation} itibar</p>
+          </>}
         </div>
 
         <div className="flex items-center gap-1">

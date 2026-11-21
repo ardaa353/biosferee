@@ -1,3 +1,4 @@
+import { startAbandonedImportCleanup } from "./datasetRouter";
 import { startCloudImageCleanup } from "./lib/imageCleanup";
 import { ranks } from "../contracts/taxonomy";
 import { searchCatalog } from "./lib/catalog";
@@ -113,6 +114,7 @@ if (env.isProduction) {
   serveStaticFiles(app);
 
   startCloudImageCleanup();
+  startAbandonedImportCleanup();
   const port = parseInt(process.env.PORT || "3000");
   serve({ fetch: app.fetch, port }, () => {
     log.info(`Server running on http://localhost:${port}/`);

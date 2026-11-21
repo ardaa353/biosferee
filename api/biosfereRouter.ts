@@ -153,7 +153,7 @@ function byPost<T>(rows: T[], postId: (row: T) => number) {
 
 async function listPosts(viewerId?: number, postId?: number) {
   const db = getDb();
-  const rows = await db.select({ post: posts, author: users }).from(posts).innerJoin(users, eq(users.id, posts.authorId))
+  const rows = await db.select({ post: posts, author: users }).from(posts).leftJoin(users, eq(users.id, posts.authorId))
     .where(postId === undefined ? undefined : eq(posts.id, postId)).orderBy(desc(posts.createdAt));
   if (!rows.length) return [];
   const ids = rows.map(row => row.post.id);
@@ -162,14 +162,17 @@ async function listPosts(viewerId?: number, postId?: number) {
     db.select({ id: likes.postId, count: sql<number>`count(*)`, liked: sql<number>`max(case when ${likes.userId} = ${viewerId ?? -1} then 1 else 0 end)` })
       .from(likes).where(inArray(likes.postId, ids)).groupBy(likes.postId),
     db.select({ id: collaborators.postId, user: users }).from(collaborators).innerJoin(users, eq(users.id, collaborators.userId)).where(inArray(collaborators.postId, ids)),
-    reputations([...new Set(rows.map(row => row.author.id))]),
+    reputations([...new Set(rows.flatMap(row => row.author ? [row.author.id] : []))]),
   ]);
   const imagesByPost = byPost(images, item => item.postId);
   const partnersByPost = byPost(partners, item => item.id);
   const likesByPost = new Map(reactions.map(item => [item.id, item]));
   return rows.map(({ post, author }) => ({
     ...post,
-    author: { ...safeUser(author), avatarUrl: author.avatarKey || undefined, reputation: rep.get(author.id) ?? 0 },
+    author: author ? { ...safeUser(author), avatarUrl: author.avatarKey || undefined, reputation: rep.get(author.id) ?? 0, isSystem: false } : {
+      id: 0, firstName: "BioSfere", lastName: "", username: "", bio: "", role: "user" as const,
+      avatarKey: null, createdAt: post.createdAt, avatarUrl: undefined, reputation: 0, isSystem: true,
+    },
     images: (imagesByPost.get(post.id) || []).map(image => ({ id: image.id, key: image.fileKey, url: image.fileKey })),
     likeCount: Number(likesByPost.get(post.id)?.count ?? 0),
     liked: Number(likesByPost.get(post.id)?.liked ?? 0) === 1,
