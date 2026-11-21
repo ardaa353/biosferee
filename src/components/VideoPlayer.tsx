@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   LoaderCircle,
   Maximize,
@@ -8,7 +8,6 @@ import {
   VolumeX,
 } from "lucide-react";
 import { videoPoster, videoSource } from "@/lib/videoUrls";
-let playerSequence = 0;
 function clock(seconds: number) {
   return (
     Math.floor(seconds / 60) +
@@ -25,8 +24,10 @@ export default function VideoPlayer({
 }) {
   const video = useRef<HTMLVideoElement>(null),
     container = useRef<HTMLDivElement>(null);
-  const id = useRef(++playerSequence),
-    userPaused = useRef(false);
+  const id = useId();
+  const userPaused = useRef(false),
+    savedPosition = useRef(0),
+    lastPaint = useRef(0);
   const [nearby, setNearby] = useState(false),
     [playing, setPlaying] = useState(false),
     [muted, setMuted] = useState(true);
@@ -39,6 +40,11 @@ export default function VideoPlayer({
     const element = video.current;
     if (!element || !container.current) return;
     let visible = false;
+    if (!nearby) {
+      element.pause();
+      element.removeAttribute("src");
+      element.load();
+    } else setFailed(false);
     const playIfVisible = () => {
       const reducedMotion = matchMedia(
         "(prefers-reduced-motion: reduce)",
@@ -47,6 +53,7 @@ export default function VideoPlayer({
         navigator as Navigator & { connection?: { saveData?: boolean } }
       ).connection?.saveData;
       if (
+        nearby &&
         visible &&
         !document.hidden &&
         !userPaused.current &&
@@ -58,12 +65,9 @@ export default function VideoPlayer({
     };
     const loadObserver = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting) {
-          setNearby(true);
-          loadObserver.disconnect();
-        }
+        setNearby(entries[0].isIntersecting);
       },
-      { rootMargin: "200px" },
+      { rootMargin: "400px" },
     );
     const observer = new IntersectionObserver(
       (entries) => {
@@ -75,7 +79,7 @@ export default function VideoPlayer({
     loadObserver.observe(container.current);
     observer.observe(container.current);
     const otherPlayer = (event: Event) => {
-      if ((event as CustomEvent<number>).detail !== id.current) element.pause();
+      if ((event as CustomEvent<string>).detail !== id) element.pause();
     };
     document.addEventListener("visibilitychange", playIfVisible);
     window.addEventListener("biosfere-video-start", otherPlayer);
@@ -85,13 +89,14 @@ export default function VideoPlayer({
     return () => {
       loadObserver.disconnect();
       observer.disconnect();
+      if (element.currentTime > 0) savedPosition.current = element.currentTime;
       element.pause();
       element.removeEventListener("canplay", ready);
       element.removeEventListener("loadedmetadata", ready);
       document.removeEventListener("visibilitychange", playIfVisible);
       window.removeEventListener("biosfere-video-start", otherPlayer);
     };
-  }, [url, nearby]);
+  }, [url, nearby, id]);
   async function toggle() {
     if (!video.current) return;
     if (video.current.paused) {
@@ -129,7 +134,7 @@ export default function VideoPlayer({
       <video
         ref={video}
         src={nearby ? (original ? url : videoSource(url)) : undefined}
-        poster={videoPoster(url)}
+        poster={nearby ? videoPoster(url) : undefined}
         muted={muted}
         playsInline
         loop
@@ -137,24 +142,37 @@ export default function VideoPlayer({
         className="h-full max-h-[80dvh] w-full object-contain"
         aria-label={label}
         onClick={() => void toggle()}
-        onLoadedMetadata={(event) =>
-          setDuration(
-            Number.isFinite(event.currentTarget.duration)
-              ? event.currentTarget.duration
-              : 0,
-          )
-        }
-        onTimeUpdate={(event) => setPosition(event.currentTarget.currentTime)}
+        onLoadedMetadata={(event) => {
+          const element = event.currentTarget;
+          const length = Number.isFinite(element.duration)
+            ? element.duration
+            : 0;
+          setDuration(length);
+          if (savedPosition.current > 0.25 && length > 0.25)
+            element.currentTime = Math.min(savedPosition.current, length - 0.1);
+        }}
+        onTimeUpdate={(event) => {
+          const element = event.currentTarget;
+          if (element.paused || performance.now() - lastPaint.current < 250)
+            return;
+          lastPaint.current = performance.now();
+          savedPosition.current = element.currentTime;
+          setPosition(element.currentTime);
+        }}
         onWaiting={() => setBuffering(true)}
         onPlaying={() => setBuffering(false)}
         onCanPlay={() => setBuffering(false)}
         onPlay={() => {
           setPlaying(true);
           window.dispatchEvent(
-            new CustomEvent("biosfere-video-start", { detail: id.current }),
+            new CustomEvent("biosfere-video-start", { detail: id }),
           );
         }}
-        onPause={() => setPlaying(false)}
+        onPause={(event) => {
+          setPlaying(false);
+          if (event.currentTarget.currentTime > 0)
+            savedPosition.current = event.currentTarget.currentTime;
+        }}
         onError={() => {
           if (!original && videoSource(url) !== url) setOriginal(true);
           else setFailed(true);
@@ -208,8 +226,10 @@ export default function VideoPlayer({
           value={Math.min(position, duration || 1)}
           className="min-w-12 flex-1 accent-white"
           onChange={(event) => {
-            if (video.current)
-              video.current.currentTime = Number(event.target.value);
+            const next = Number(event.target.value);
+            savedPosition.current = next;
+            setPosition(next);
+            if (video.current) video.current.currentTime = next;
           }}
         />
         <span className="text-xs tabular-nums">

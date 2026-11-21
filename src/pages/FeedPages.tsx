@@ -2,11 +2,12 @@ import {
   useCallback,
   useEffect,
   useRef,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
 import { Link } from "react-router";
-import { Plus, RefreshCw } from "lucide-react";
+import { Plus } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { trpc } from "@/providers/trpc";
 import PostCard from "@/components/PostCard";
@@ -58,19 +59,20 @@ function VisiblePost({
       observer.disconnect();
     };
   }, [id, record]);
-  return <div ref={target}>{children}</div>;
+  return (
+    <div ref={target} className="feed-post">
+      {children}
+    </div>
+  );
 }
 function ObservationFeed({ unknown = false }: { unknown?: boolean }) {
   const { user } = useAuth();
   const storageKey = "biosfere_viewed_" + user?.id;
-  const [session, setSession] = useState(() => ({
+  const [session] = useState(() => ({
     seed: crypto.randomUUID(),
     seenIds: viewedPosts(storageKey),
   }));
-  const [sort, setSort] = useState<"recommended" | "reputation" | "newest">(
-      "recommended",
-    ),
-    [kingdom, setKingdom] = useState("all");
+  const [kingdom, setKingdom] = useState("all");
   const record = useCallback(
     (id: number) => {
       try {
@@ -92,21 +94,24 @@ function ObservationFeed({ unknown = false }: { unknown?: boolean }) {
   const query = trpc.biosfere.posts.feed.useInfiniteQuery(
     {
       status: unknown ? "unknown" : "verified",
-      sort: unknown ? "newest" : sort,
+      sort: unknown ? "newest" : "recommended",
       kingdom: kingdom === "all" ? undefined : kingdom,
       limit: 12,
       ...session,
     },
     { getNextPageParam: (last) => last.nextCursor ?? undefined },
   );
-  const posts = [
-    ...new Map(
-      (query.data?.pages.flatMap((page) => page.items) || []).map((post) => [
-        post.id,
-        post,
-      ]),
-    ).values(),
-  ];
+  const posts = useMemo(
+    () => [
+      ...new Map(
+        (query.data?.pages.flatMap((page) => page.items) || []).map((post) => [
+          post.id,
+          post,
+        ]),
+      ).values(),
+    ],
+    [query.data],
+  );
   return (
     <div className="mx-auto max-w-[840px]">
       {unknown && (
@@ -122,25 +127,8 @@ function ObservationFeed({ unknown = false }: { unknown?: boolean }) {
           }
         />
       )}
-      {!unknown && (
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <h1 className="font-serif text-2xl">Akış</h1>
-          <button
-            type="button"
-            className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-semibold text-[#40574c] hover:bg-white"
-            onClick={() =>
-              setSession({
-                seed: crypto.randomUUID(),
-                seenIds: viewedPosts(storageKey),
-              })
-            }
-          >
-            <RefreshCw size={16} />
-            Yenile
-          </button>
-        </div>
-      )}
-      <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+      {!unknown && <h1 className="sr-only">Canlı gözlemleri</h1>}
+      <div className="mb-5">
         <div
           className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
           role="group"
@@ -166,23 +154,6 @@ function ObservationFeed({ unknown = false }: { unknown?: boolean }) {
           ))}
         </div>
       </div>
-      {!unknown && (
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <span />
-          <label className="flex shrink-0 items-center gap-2 text-sm text-[#40574c]">
-            <span className="sr-only">Gözlem sıralaması</span>
-            <select
-              value={sort}
-              onChange={(event) => setSort(event.target.value as typeof sort)}
-              className="min-h-11 rounded-lg border border-[#09352e]/15 bg-white px-3 pr-8 text-sm"
-            >
-              <option value="recommended">Senin için</option>
-              <option value="reputation">İtibara göre</option>
-              <option value="newest">En yeni</option>
-            </select>
-          </label>
-        </div>
-      )}
       {query.isPending ? (
         <FeedSkeleton />
       ) : query.isError && !posts.length ? (

@@ -552,17 +552,24 @@ export const biosfereRouter = createRouter({
       }),
 
     toggleLike: authedQuery
-      .input(z.object({ postId: z.number() }))
+      .input(z.object({ postId: z.number().int().positive(), liked: z.boolean().optional() }))
       .mutation(async ({ ctx, input }) => {
         const db = getDb();
         return db.transaction(async tx => {
-          const [post] = await tx.select({id: posts.id, status: posts.status}).from(posts).where(eq(posts.id, input.postId)).limit(1).for("update");
+          const [post] = await tx.select({id: posts.id, status: posts.status, authorId: posts.authorId}).from(posts).where(eq(posts.id, input.postId)).limit(1).for("update");
           if (!post || post.status === "removed") throw new TRPCError({code: "NOT_FOUND", message: "Gönderi bulunamadı."});
           const [existing] = await tx.select({id: likes.id}).from(likes)
             .where(and(eq(likes.postId, input.postId), eq(likes.userId, ctx.user.id))).limit(1);
-          if (existing) await tx.delete(likes).where(eq(likes.id, existing.id));
-          else await tx.insert(likes).values({postId: input.postId, userId: ctx.user.id});
-          return {liked: !existing};
+          const liked = input.liked ?? !existing;
+          if (existing && !liked) await tx.delete(likes).where(eq(likes.id, existing.id));
+          if (!existing && liked) await tx.insert(likes).values({postId: input.postId, userId: ctx.user.id});
+          const [counts] = await tx.select({
+            likeCount: sql<number>`coalesce(sum(case when ${likes.postId} = ${post.id} then 1 else 0 end), 0)`,
+            reputation: sql<number>`count(*)`,
+          }).from(likes).innerJoin(posts, eq(posts.id, likes.postId)).where(and(
+            ne(posts.status, "removed"), post.authorId === null ? eq(posts.id, post.id) : eq(posts.authorId, post.authorId),
+          ));
+          return {liked, likeCount: Number(counts.likeCount), authorId: post.authorId, authorReputation: post.authorId === null ? 0 : Number(counts.reputation)};
         });
       }),
 
@@ -639,35 +646,26 @@ export const biosfereRouter = createRouter({
       }),
 
     accept: adminQuery
-      .input(z.object({ suggestionId: z.number() }))
-      .mutation(async ({ input }) => {
+      .input(z.object({suggestionId: z.number().int().positive()}))
+      .mutation(async ({input}) => {
         const db = getDb();
-        const [suggestion] = await db.select().from(suggestions).where(eq(suggestions.id, input.suggestionId)).limit(1);
-        if (!suggestion) throw new TRPCError({ code: "NOT_FOUND" });
-
-        await db.transaction(async (tx) => {
-          await tx
-            .update(posts)
-            .set({
-              status: "verified",
-              kingdom: suggestion.kingdom,
-              phylum: suggestion.phylum,
-              className: suggestion.className,
-              orderName: suggestion.orderName,
-              family: suggestion.family,
-              genus: suggestion.genus,
-              species: suggestion.species,
-              commonName: suggestion.commonName,
-            })
-            .where(eq(posts.id, suggestion.postId));
-
-          await tx.update(suggestions).set({ status: "accepted" }).where(eq(suggestions.id, suggestion.id));
-          await tx
-            .update(suggestions)
-            .set({ status: "rejected" })
-            .where(and(eq(suggestions.postId, suggestion.postId), ne(suggestions.id, suggestion.id)));
+        const [candidate] = await db.select({postId: suggestions.postId}).from(suggestions).where(eq(suggestions.id, input.suggestionId)).limit(1);
+        if (!candidate) throw new TRPCError({code: "NOT_FOUND"});
+        await db.transaction(async tx => {
+          // Follow the same lock order as removal: post first, then its suggestions.
+          const [post] = await tx.select({id: posts.id, status: posts.status}).from(posts).where(eq(posts.id, candidate.postId)).limit(1).for("update");
+          if (!post) throw new TRPCError({code: "NOT_FOUND"});
+          if (post.status !== "unknown") throw new TRPCError({code: "CONFLICT", message: "Bu gözlem artık tür onayına açık değil."});
+          const [suggestion] = await tx.select().from(suggestions).where(and(eq(suggestions.id, input.suggestionId), eq(suggestions.postId, post.id))).limit(1).for("update");
+          if (!suggestion || suggestion.status !== "pending") throw new TRPCError({code: "CONFLICT", message: "Bu öneri daha önce değerlendirilmiş."});
+          await tx.update(posts).set({status: "verified", kingdom: suggestion.kingdom, phylum: suggestion.phylum,
+            className: suggestion.className, orderName: suggestion.orderName, family: suggestion.family,
+            genus: suggestion.genus, species: suggestion.species, commonName: suggestion.commonName,
+          }).where(eq(posts.id, post.id));
+          await tx.update(suggestions).set({status: "accepted"}).where(eq(suggestions.id, suggestion.id));
+          await tx.update(suggestions).set({status: "rejected"}).where(and(eq(suggestions.postId, post.id), ne(suggestions.id, suggestion.id)));
         });
-        return { ok: true };
+        return {ok: true};
       }),
   }),
 

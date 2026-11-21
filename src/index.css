@@ -47,3 +47,8 @@ summary {overflow-wrap:anywhere;}
 .observation-card h2 {overflow-wrap:anywhere;}
 .photo-dialog:focus {outline:none;}
 @media(prefers-reduced-motion:reduce) {*,*::before,*::after {animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important;}}
+
+@supports (content-visibility:auto) {
+  .feed-post {content-visibility:auto;contain-intrinsic-size:auto 800px;}
+  @media(max-width:639px) {.feed-post {contain-intrinsic-size:auto 640px;}}
+}

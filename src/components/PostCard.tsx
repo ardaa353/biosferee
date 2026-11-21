@@ -1,5 +1,6 @@
+import { createPortal } from "react-dom";
 import PhotoGallery from "@/components/PhotoGallery";
-import { useState, type FormEvent } from "react";
+import { memo, useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { useAuth } from "@/lib/auth";
 import {
@@ -14,7 +15,9 @@ import {
   Trash2,
   Share2,
 } from "lucide-react";
-import { trpc } from "@/providers/trpc";
+import { trpc, queryClient } from "@/providers/trpc";
+import { getQueryKey } from "@trpc/react-query";
+import type { InfiniteData } from "@tanstack/react-query";
 import type { BioPost } from "@/lib/types";
 import { cn, errorMessage, formatDate, seasonOf } from "@/lib/utils";
 import {
@@ -24,7 +27,7 @@ import {
   secondaryButton,
 } from "@/components/BioUI";
 
-export default function PostCard({
+function PostCard({
   post,
   compact = false,
   priority = false,
@@ -34,6 +37,9 @@ export default function PostCard({
   priority?: boolean;
 }) {
   const [reporting, setReporting] = useState(false);
+  const [optimisticLike, setOptimisticLike] = useState<{liked: boolean; count: number} | null>(null);
+  const isLiked = optimisticLike?.liked ?? post.liked;
+  const likeCount = optimisticLike?.count ?? post.likeCount;
   
   
   const [details, setDetails] = useState("");
@@ -55,15 +61,27 @@ export default function PostCard({
   }
 
   const like = trpc.biosfere.posts.toggleLike.useMutation({
-    onSuccess: async () => {
-      await Promise.all([
-        utils.biosfere.posts.invalidate(),
-        utils.biosfere.posts.get.invalidate({ id: post.id }),
-      ]);
+    onSuccess: async result => {
+      await queryClient.cancelQueries({queryKey: getQueryKey(trpc.biosfere.posts)});
+      const patch = (item: BioPost): BioPost => {
+        const target = item.id === post.id;
+        const sameAuthor = result.authorId !== null && item.author.id === result.authorId;
+        if (!target && !sameAuthor) return item;
+        return {...item,
+          ...(target ? {liked: result.liked, likeCount: result.likeCount} : {}),
+          ...(sameAuthor ? {author: {...item.author, reputation: result.authorReputation}} : {}),
+        };
+      };
+      utils.biosfere.posts.list.setData(undefined, data => data?.map(patch));
+      queryClient.setQueriesData<BioPost>({queryKey: getQueryKey(trpc.biosfere.posts.get)}, data => data ? patch(data) : data);
+      queryClient.setQueriesData<InfiniteData<{items: BioPost[]; nextCursor: number | null}>>(
+        {queryKey: getQueryKey(trpc.biosfere.posts.feed)},
+        data => data ? {...data, pages: data.pages.map(page => ({...page, items: page.items.map(patch)}))} : data,
+      );
+      if (result.authorId !== null) utils.biosfere.users.list.setData(undefined, users => users?.map(user => user.id === result.authorId ? {...user, reputation: result.authorReputation} : user));
+      setOptimisticLike(null);
     },
-    onError: (error) => {
-      setMessage(errorMessage(error));
-    },
+    onError: error => {setOptimisticLike(null); setMessage(errorMessage(error));},
   });
 
   const report = trpc.biosfere.posts.report.useMutation({
@@ -212,23 +230,26 @@ export default function PostCard({
           type="button"
           onClick={() => {
             if (!currentUser) {login(); return;}
-            like.mutate({ postId: post.id });
+            const liked = !isLiked;
+            setMessage("");
+            setOptimisticLike({liked, count: Math.max(0, likeCount + (liked ? 1 : -1))});
+            like.mutate({ postId: post.id, liked });
           }}
           disabled={like.isPending}
-          aria-pressed={post.liked}
-          aria-label={`${post.liked ? "Beğeniyi kaldır" : "Gözlemi beğen"}: ${post.likeCount} beğeni`}
+          aria-pressed={isLiked}
+          aria-label={`${isLiked ? "Beğeniyi kaldır" : "Gözlemi beğen"}: ${likeCount} beğeni`}
           className={cn(
             "flex min-h-11 cursor-pointer items-center gap-2 rounded-full border px-4 text-sm font-semibold transition",
-            post.liked
+            isLiked
               ? "border-[#a63f36]/25 bg-[#a63f36]/10 text-[#8d302a]"
               : "border-[#09352e]/20 hover:border-[#a63f36]/40"
           )}
         >
           <Heart
             size={19}
-            fill={post.liked ? "currentColor" : "none"}
+            fill={isLiked ? "currentColor" : "none"}
           />
-          {post.likeCount}
+          {likeCount}
         </button>
       </div>
 
@@ -289,7 +310,7 @@ export default function PostCard({
         </p>
       )}
 
-      {reporting && (
+      {reporting && createPortal(
         <div
           className="fixed inset-0 z-50 grid place-items-center bg-[#09352e]/55 p-4"
           onMouseDown={(e) => {
@@ -385,8 +406,10 @@ export default function PostCard({
               </button>
             </div>
           </form>
-        </div>
+        </div>, document.body
       )}
     </article>
   );
 }
+
+export default memo(PostCard);
