@@ -22,25 +22,35 @@ export function isCloudinaryImageUrl(value: string): boolean {
     return url.origin === "https://res.cloudinary.com" && !url.username && !url.password && url.pathname.startsWith("/" + cloudName + "/image/upload/");
   } catch { return false; }
 }
+export function cloudResourceType(value: string): "image" | "video" | null {
+  if (isCloudinaryImageUrl(value)) return "image";
+  try {
+    const url = new URL(value);
+    if (url.origin === "https://res.cloudinary.com" && !url.username && !url.password && url.pathname.startsWith("/" + cloudName + "/video/upload/")) return "video";
+  } catch { /* Invalid URLs are rejected below. */ }
+  return null;
+}
+export function isCloudinaryMediaUrl(value: string) {return cloudResourceType(value) !== null;}
 export function cloudPublicId(value: string) {
-  if (!isCloudinaryImageUrl(value)) return null;
-  const suffix = new URL(value).pathname.slice(("/" + cloudName + "/image/upload/").length);
+  const type = cloudResourceType(value);
+  if (!type) return null;
+  const suffix = new URL(value).pathname.slice(("/" + cloudName + "/" + type + "/upload/").length);
   const version = /(?:^|\/)v\d+\//.exec(suffix);
   const path = version ? suffix.slice(version.index + version[0].length) : suffix;
   return decodeURIComponent(path.replace(/\.[^/.]+$/, ""));
 }
-export function cloudAssetUrl(publicId: string) {
-  return "https://res.cloudinary.com/" + cloudName + "/image/upload/" + publicId.split("/").map(encodeURIComponent).join("/");
+export function cloudAssetUrl(publicId: string, type: "image" | "video" = "image") {
+  return "https://res.cloudinary.com/" + cloudName + "/" + type + "/upload/" + publicId.split("/").map(encodeURIComponent).join("/");
 }
 export function signCloudParameters(parameters: Record<string, string>) {
   const c = requireCloudinary();
   const signed = Object.keys(parameters).sort().map(key => key + "=" + parameters[key]).join("&");
   return createHash("sha256").update(signed + c.apiSecret).digest("hex");
 }
-export function signedImageUpload(publicId: string) {
+export function signedImageUpload(publicId: string, type: "image" | "video" = "image") {
   const c = requireCloudinary();
   const parameters = { public_id: publicId, timestamp: String(Math.floor(Date.now() / 1000)), overwrite: "true" };
-  return { url: "https://api.cloudinary.com/v1_1/" + encodeURIComponent(c.cloudName) + "/image/upload", fields: { ...parameters, api_key: c.apiKey, signature: signCloudParameters(parameters) } };
+  return { url: "https://api.cloudinary.com/v1_1/" + encodeURIComponent(c.cloudName) + "/" + type + "/upload", fields: { ...parameters, api_key: c.apiKey, signature: signCloudParameters(parameters) } };
 }
 export async function probeCloudinary() {
   const c = requireCloudinary();
@@ -57,8 +67,8 @@ async function cloudAdmin(path: string, init: RequestInit = {}) {
 }
 // Destroy removes delivery files, but automatic backups retain storage and a placeholder.
 // Keep the queue entry until those versions have also been removed successfully.
-async function purgeDeletedBackups(publicId: string) {
-  const details = await cloudAdmin("/resources/image/upload/" + encodeURIComponent(publicId) + "?versions=true");
+async function purgeDeletedBackups(publicId: string, type: "image" | "video" = "image") {
+  const details = await cloudAdmin("/resources/" + type + "/upload/" + encodeURIComponent(publicId) + "?versions=true");
   if (details.status === 404) return;
   if (!details.ok) throw new Error("Silinen fotoğrafın yedekleri kontrol edilemedi (HTTP " + details.status + ").");
   const resource = await details.json() as {asset_id?: string; placeholder?: boolean; backup?: boolean; versions?: {version_id?: string}[]};
@@ -78,7 +88,7 @@ export async function deleteExistingBackup(url: string) {
   const publicId = cloudPublicId(url);
   if (!publicId) throw new Error("Geçersiz Cloudinary fotoğrafı.");
   // This path never destroys an active original, even if restored after the list was opened.
-  await purgeDeletedBackups(publicId);
+  await purgeDeletedBackups(publicId, cloudResourceType(url)!);
 }
 export async function deletedCloudImageUrls(cursor?: string) {
   const response = await cloudAdmin("/resources/search", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({expression: "resource_type:image AND type:upload AND status:deleted", max_results: 100, ...(cursor ? {next_cursor: cursor} : {})})});
@@ -90,11 +100,12 @@ export async function destroyCloudImage(url: string): Promise<void> {
   const publicId = cloudPublicId(url);
   if (!publicId) throw new Error("Fotoğrafın Cloudinary kimliği çözülemedi.");
   const c = requireCloudinary();
+  const type = cloudResourceType(url)!;
   const parameters = { public_id: publicId, timestamp: String(Math.floor(Date.now() / 1000)), invalidate: "true" };
-  const response = await fetch("https://api.cloudinary.com/v1_1/" + encodeURIComponent(c.cloudName) + "/image/destroy", {
+  const response = await fetch("https://api.cloudinary.com/v1_1/" + encodeURIComponent(c.cloudName) + "/" + type + "/destroy", {
     method: "POST", body: new URLSearchParams({ ...parameters, signature: signCloudParameters(parameters), api_key: c.apiKey }), signal: AbortSignal.timeout(12_000),
   });
   const result = await response.json().catch(() => ({})) as { result?: string };
   if (!response.ok || !["ok", "not found"].includes(result.result || "")) throw new Error(response.status === 401 || response.status === 403 ? "Cloudinary silme yetkisi reddedildi. Render'daki API anahtarlarını kontrol edin." : "Cloudinary silme işlemini doğrulamadı (HTTP " + response.status + ").");
-  await purgeDeletedBackups(publicId);
+  await purgeDeletedBackups(publicId, cloudResourceType(url)!);
 }

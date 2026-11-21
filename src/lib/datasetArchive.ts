@@ -1,3 +1,4 @@
+import {isVideoFile, mediaContentType} from "@contracts/media";
 import { BlobReader, BlobWriter, TextReader, ZipReader, ZipWriter, configure } from "@zip.js/zip.js";
 import { datasetSchema, type Dataset } from "@contracts/dataset";
 configure({useWebWorkers: false});
@@ -89,7 +90,8 @@ export async function openDatasetArchive(file: File): Promise<DatasetArchive> {
     return { dataset: parsed.data, close, readPhoto: async path => {
       const full = names.get(normalized(path));
       if (!full) throw new Error("Fotoğraf bulunamadı: " + path);
-      return new File([await read(full)], full.split("/").at(-1) || "gozlem.jpg");
+      const name = full.split("/").at(-1) || "gozlem.jpg";
+      return new File([await read(full)], name, {type: isVideoFile({name, type: ""}) ? mediaContentType(name) : ""});
     }};
   } catch (error) { await close(); throw error; }
 }
@@ -101,7 +103,7 @@ export async function exportDatasetZip(snapshot: {
   const posts = [];
   let done = 0;
   const total = snapshot.posts.reduce((sum, post) => sum + post.images.length, 0);
-  const extensions: Record<string, string> = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif", "image/tiff": "tiff", "image/heic": "heic"};
+  const extensions: Record<string, string> = {"video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov", "video/x-matroska": "mkv", "video/x-msvideo": "avi", "video/3gpp": "3gp", "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif", "image/tiff": "tiff", "image/heic": "heic"};
   try {
     for (const post of snapshot.posts) {
       const images = [];
@@ -114,7 +116,7 @@ export async function exportDatasetZip(snapshot: {
         if (!response.ok) throw new Error("Gönderi " + post.id + " fotoğrafı indirilemedi (HTTP " + response.status + "). Arşiv tamamlanmadı.");
         const photo = await response.blob();
         const type = photo.type.split(";")[0];
-        if (!type.startsWith("image/")) throw new Error("Fotoğraf sunucusu bir görüntü döndürmedi.");
+        if (!type.startsWith("image/") && !type.startsWith("video/")) throw new Error("Medya sunucusu fotoğraf veya video döndürmedi.");
         const suffix = url.pathname.match(/\.([A-Za-z0-9]{2,5})$/)?.[1]?.toLowerCase() || "jpg";
         const path = "photos/gonderi" + post.id + "." + (index + 1) + "." + (extensions[type] || suffix);
         await writer.add(path, new BlobReader(photo), {level: 0});

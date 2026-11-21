@@ -12,6 +12,7 @@ import {
   X,
   Pencil,
   Trash2,
+  Share2,
 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import type { BioPost } from "@/lib/types";
@@ -44,6 +45,14 @@ export default function PostCard({
   const utils = trpc.useUtils();
   const { user: currentUser } = useAuth();
   const location = useLocation(), navigate = useNavigate();
+  const login = () => navigate("/giris?next=" + encodeURIComponent(`/gonderi/${post.id}`));
+  async function share() {
+    const url = new URL(`/gonderi/${post.id}`, window.location.origin).href;
+    try {
+      if (navigator.share) await navigator.share({title: post.commonName || post.species || "BioSfere gözlemi", url});
+      else {await navigator.clipboard.writeText(url); setMessage("Gönderi bağlantısı kopyalandı.");}
+    } catch (error) {if (!(error instanceof DOMException && error.name === "AbortError")) setMessage("Bağlantı: " + url);}
+  }
 
   const like = trpc.biosfere.posts.toggleLike.useMutation({
     onSuccess: async () => {
@@ -104,10 +113,10 @@ export default function PostCard({
       id={"gonderi-" + post.id}
     >
       <header className="mb-4 flex items-center gap-3">
-        {post.author.isSystem ? <Avatar user={post.author} /> : <Link to={`/profil/${post.author.username}`}><Avatar user={post.author} /></Link>}
+        {post.author.isSystem || !currentUser ? <Avatar user={post.author} /> : <Link to={`/profil/${post.author.username}`}><Avatar user={post.author} /></Link>}
 
         <div className="min-w-0 flex-1">
-          {post.author.isSystem ? <p className="text-sm font-bold">BioSfere</p> : <>
+          {post.author.isSystem ? <p className="text-sm font-bold">BioSfere</p> : !currentUser ? <p className="text-sm font-bold">{post.author.firstName} {post.author.lastName}</p> : <>
             <Link to={`/profil/${post.author.username}`} className="text-sm font-bold hover:underline hover:text-[#007f24]">
               {post.author.firstName} {post.author.lastName}
             </Link>
@@ -155,6 +164,7 @@ export default function PostCard({
           <button
             type="button"
             onClick={() => {
+              if (!currentUser) {login(); return;}
               setMessage("");
               setReporting(true);
             }}
@@ -201,6 +211,7 @@ export default function PostCard({
         <button
           type="button"
           onClick={() => {
+            if (!currentUser) {login(); return;}
             like.mutate({ postId: post.id });
           }}
           disabled={like.isPending}
@@ -247,16 +258,14 @@ export default function PostCard({
           Ortak çalışma:{" "}
           {post.collaborators.map((c, index) => (
             <span key={c.id}>
-              <Link to={`/profil/${c.username}`} className="hover:underline hover:text-[#007f24] font-semibold transition-colors">
-                {c.firstName} {c.lastName}
-              </Link>
+              {currentUser ? <Link to={`/profil/${c.username}`} className="hover:underline hover:text-[#007f24] font-semibold transition-colors">{c.firstName} {c.lastName}</Link> : <span>{c.firstName} {c.lastName}</span>}
               {index < post.collaborators.length - 1 ? ", " : ""}
             </span>
           ))}
         </p>
       )}
 
-      <div className="mt-4 flex gap-2">
+      <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => void share()} className={secondaryButton}><Share2 size={16} />Paylaş</button>
         <Link to={"/gonderi/" + post.id} className={secondaryButton}>
           {post.status === "unknown"
             ? "Türü şu olabilir"

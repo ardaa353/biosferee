@@ -1,10 +1,11 @@
 import { prepareImageCleanup, queueCloudImages, kickCloudImageCleanup } from "./lib/imageCleanup";
+import { rankFeed } from "./lib/feedRanking";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, between, desc, eq, inArray, ne, sql } from "drizzle-orm";
-import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import { isCloudinaryImageUrl } from "./lib/cloudImages";
+import { isCloudinaryImageUrl, isCloudinaryMediaUrl, cloudResourceType, cloudAssetUrl, signedImageUpload } from "./lib/cloudImages";
 import { speciesProfile } from "./lib/speciesProfiles";
 
 import {
@@ -51,7 +52,7 @@ const imageInput = z.object({
   name: z.string().min(1).max(240),
   contentType: z
     .string()
-    .regex(/^image\/(jpeg|png|webp|gif)$/),
+    .regex(/^(image\/(jpeg|png|webp|gif)|video\/[a-z0-9.+-]+)$/i),
   contentBase64: z.string().url().max(512),
 });
 
@@ -96,10 +97,10 @@ async function resolveImages(
   files: z.infer<typeof imageInput>[]
 ): Promise<{ key: string }[]> {
   return files.map((file) => {
-    if (!isCloudinaryImageUrl(file.contentBase64)) {
+    if (!isCloudinaryMediaUrl(file.contentBase64) || (file.contentType.startsWith("video/") !== (cloudResourceType(file.contentBase64) === "video"))) {
       throw new TRPCError({
         code: "BAD_REQUEST",
-        message: "Geçerli bir Cloudinary fotoğraf adresi gönderilmelidir.",
+        message: "Geçerli bir Cloudinary medya adresi gönderilmelidir.",
       });
     }
     return {
@@ -156,12 +157,12 @@ function byPost<T>(rows: T[], postId: (row: T) => number) {
 }
 
 type FeedOptions = {status: "verified" | "unknown"; kingdom?: string; sort: "newest" | "reputation"; cursor: number; limit: number};
-async function listPosts(viewerId?: number, postId?: number, feed?: FeedOptions) {
+async function listPosts(viewerId?: number, postId?: number, feed?: FeedOptions, postIds?: number[]) {
   const db = getDb();
   const scores = db.select({authorId: posts.authorId, total: sql<number>`count(*)`.as("total")}).from(likes)
     .innerJoin(posts, eq(likes.postId, posts.id)).where(ne(posts.status, "removed")).groupBy(posts.authorId).as("author_scores");
   let selection = db.select({ post: posts, author: users }).from(posts).leftJoin(users, eq(users.id, posts.authorId))
-    .where(and(ne(posts.status, "removed"), postId === undefined ? undefined : eq(posts.id, postId),
+    .where(and(ne(posts.status, "removed"), postIds ? inArray(posts.id, postIds) : undefined, postId === undefined ? undefined : eq(posts.id, postId),
       feed ? eq(posts.status, feed.status) : undefined, feed?.kingdom ? eq(posts.kingdom, feed.kingdom) : undefined)).$dynamic();
   if (feed?.sort === "reputation") selection = selection.leftJoin(scores, eq(scores.authorId, posts.authorId));
   selection = selection.orderBy(...(feed?.sort === "reputation" ? [desc(sql`coalesce(${scores.total}, 0)`), desc(posts.createdAt), desc(posts.id)] : [desc(posts.createdAt), desc(posts.id)]));
@@ -192,11 +193,38 @@ async function listPosts(viewerId?: number, postId?: number, feed?: FeedOptions)
   }));
 }
 
+const feedSessions = new Map<string, {expires: number; ids: number[]}>();
+async function recommendedFeed(viewerId: number, seed: string, kingdom: string | undefined, seenIds: number[]) {
+  const key = viewerId + "/" + seed + "/" + (kingdom || "all");
+  const cached = feedSessions.get(key);
+  if (cached && cached.expires > Date.now()) return cached.ids;
+  const db = getDb();
+  const fields = {id: posts.id, authorId: posts.authorId, kingdom: posts.kingdom, family: posts.family, genus: posts.genus, species: posts.species, createdAt: posts.createdAt};
+  const [candidates, liked] = await Promise.all([
+    db.select(fields).from(posts).where(and(eq(posts.status, "verified"), kingdom ? eq(posts.kingdom, kingdom) : undefined)).orderBy(desc(posts.createdAt), desc(posts.id)).limit(600),
+    db.select(fields).from(likes).innerJoin(posts, eq(posts.id, likes.postId)).where(and(eq(likes.userId, viewerId), ne(posts.status, "removed"))).orderBy(desc(likes.createdAt)).limit(150),
+  ]);
+  const rep = await reputations([...new Set(candidates.flatMap(post => post.authorId ? [post.authorId] : []))]);
+  const ids = rankFeed(candidates, liked, rep, new Set(seenIds), seed, viewerId);
+  for (const [session, value] of feedSessions) if (value.expires < Date.now()) feedSessions.delete(session);
+  if (feedSessions.size >= 400) feedSessions.delete(feedSessions.keys().next().value!);
+  feedSessions.set(key, {ids, expires: Date.now() + 30 * 60_000});
+  return ids;
+}
+
 // ---------------------------------------------------------
 // ANA ROUTER
 // ---------------------------------------------------------
 
 export const biosfereRouter = createRouter({
+  videoUpload: authedQuery.mutation(async ({ctx}) => {
+    const publicId = "biosfere/posts/" + ctx.user.id + "/" + randomUUID();
+    const upload = signedImageUpload(publicId, "video");
+    await prepareImageCleanup();
+    // Unattached uploads are reclaimed after signatures expire. Saved posts protect their referenced media.
+    await getDb().transaction(tx => queueCloudImages(tx, [cloudAssetUrl(publicId, "video")], new Date(Date.now() + 2 * 60 * 60_000)));
+    return upload;
+  }),
   taxonProfiles: authedQuery.input(z.object({taxa: z.array(z.object({species: z.string().trim().min(2).max(200), kingdom: z.string().trim().max(100)})).min(1).max(5)}))
     .query(({input}) => Promise.all(input.taxa.map(taxon => speciesProfile(taxon.species, taxon.kingdom)))),
   nearbySpecies: authedQuery.input(z.object({
@@ -291,6 +319,7 @@ export const biosfereRouter = createRouter({
       .input(z.object({ bio: z.string().trim().min(3).max(1000), avatar: imageInput.optional() }))
       .mutation(async ({ ctx, input }) => {
         await prepareImageCleanup();
+        if (input.avatar && !isCloudinaryImageUrl(input.avatar.contentBase64)) throw new TRPCError({code: "BAD_REQUEST", message: "Profil fotoğrafı bir görüntü olmalı."});
         const saved = input.avatar ? await resolveImages([input.avatar]) : [];
         await getDb().transaction(async tx => {
           const [user] = await tx.select().from(users).where(eq(users.id, ctx.user.id)).limit(1).for("update");
@@ -403,12 +432,22 @@ export const biosfereRouter = createRouter({
     feed: authedQuery.input(z.object({
       status: z.enum(["verified", "unknown"]).default("verified"),
       kingdom: z.string().trim().max(100).optional(),
-      sort: z.enum(["newest", "reputation"]).default("newest"),
+      sort: z.enum(["recommended", "newest", "reputation"]).default("recommended"),
+      seed: z.string().min(1).max(80).default("initial"),
+      seenIds: z.array(z.number().int().positive()).max(200).default([]),
       cursor: z.number().int().min(0).max(10_000_000).nullish(),
       limit: z.number().int().min(1).max(30).default(12),
     })).query(async ({ctx, input}) => {
       const cursor = input.cursor ?? 0;
-      const rows = await listPosts(ctx.user.id, undefined, {...input, cursor});
+      if (input.sort === "recommended" && input.status === "verified") {
+        const ids = await recommendedFeed(ctx.user.id, input.seed, input.kingdom, input.seenIds);
+        const page = ids.slice(cursor, cursor + input.limit);
+        const rows = page.length ? await listPosts(ctx.user.id, undefined, undefined, page) : [];
+        const positions = new Map(page.map((id, index) => [id, index]));
+        rows.sort((a, b) => positions.get(a.id)! - positions.get(b.id)!);
+        return {items: rows, nextCursor: cursor + input.limit < ids.length ? cursor + input.limit : null};
+      }
+      const rows = await listPosts(ctx.user.id, undefined, {...input, sort: input.sort === "recommended" ? "newest" : input.sort, cursor});
       return {items: rows.slice(0, input.limit), nextCursor: rows.length > input.limit ? cursor + input.limit : null};
     }),
     list: publicQuery.query(async ({ ctx }) => {
@@ -571,10 +610,12 @@ export const biosfereRouter = createRouter({
   // TÜR TESPİTİ VE ÖNERİLER
   // -------------------------------------------------------
   identification: createRouter({
-    forPost: authedQuery
+    forPost: publicQuery
       .input(z.object({ postId: z.number() }))
       .query(async ({ input }) => {
         const db = getDb();
+        const [visible] = await db.select({id: posts.id}).from(posts).where(and(eq(posts.id, input.postId), ne(posts.status, "removed"))).limit(1);
+        if (!visible) throw new TRPCError({code: "NOT_FOUND"});
         const rows = await db
           .select({ suggestion: suggestions, user: users })
           .from(suggestions)

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import VideoPlayer from "./VideoPlayer";
+import { isVideoUrl } from "@contracts/media";
 import { photoSources, photoUrl } from "@/lib/photoUrls";
 
 function Picture({ url, alt, expanded = false, priority = false }: { url: string; alt: string; expanded?: boolean; priority?: boolean }) {
@@ -43,13 +45,13 @@ export default function PhotoGallery({ images, alt, priority = false }: { images
   const controls = (full: boolean) => count > 1 && <>
     <button type="button" className={"gallery-arrow gallery-prev" + (full ? " large" : "")} aria-label="Önceki fotoğraf" onClick={() => move(-1)}><ChevronLeft /></button>
     <button type="button" className={"gallery-arrow gallery-next" + (full ? " large" : "")} aria-label="Sonraki fotoğraf" onClick={() => move(1)}><ChevronRight /></button>
-    <span className="gallery-counter" aria-live={full ? "polite" : "off"}>{index + 1} / {count}</span>
+    <span className={"gallery-counter" + (isVideoUrl(url) ? " !bottom-auto top-3" : "")} aria-live={full ? "polite" : "off"}>{index + 1} / {count}</span>
   </>;
   return <div className="mb-5">
-    <div className="group relative aspect-[4/3] overflow-hidden rounded-xl bg-[#dfe7df] sm:aspect-[16/10]">
-      <button type="button" ref={trigger} className="grid h-full w-full cursor-zoom-in" aria-label={alt + " · Fotoğrafı büyüt"} onClick={() => setExpanded(true)}>
+    <div className={"group relative w-full overflow-hidden rounded-xl bg-[#dfe7df] " + (isVideoUrl(url) ? "aspect-[4/5] max-h-[75dvh]" : "aspect-[4/3] sm:aspect-[16/10]")}>
+      {isVideoUrl(url) ? <VideoPlayer key={url} url={url} label={alt} /> : <button type="button" ref={trigger} className="grid h-full w-full cursor-zoom-in" aria-label={alt + " · Fotoğrafı büyüt"} onClick={() => setExpanded(true)}>
         <Picture key={url} url={url} alt={alt} priority={priority} />
-      </button>
+      </button>}
       {controls(false)}
     </div>
     {expanded && createPortal(<dialog ref={dialog} className="photo-dialog" aria-label="Gözlem fotoğrafları"
@@ -71,7 +73,7 @@ export default function PhotoGallery({ images, alt, priority = false }: { images
           const dy = event.changedTouches[0].clientY - start.y;
           if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) move(dx < 0 ? 1 : -1);
         }}>
-        <Picture key={url} url={url} alt={alt + " (" + (index + 1) + "/" + count + ")"} expanded />
+        {isVideoUrl(url) ? <VideoPlayer key={url} url={url} label={alt} /> : <Picture key={url} url={url} alt={alt + " (" + (index + 1) + "/" + count + ")"} expanded />}
       </div>
       <button type="button" autoFocus className="gallery-close" aria-label="Görüntüleyiciyi kapat" onClick={() => setExpanded(false)}><X /></button>
       {controls(true)}

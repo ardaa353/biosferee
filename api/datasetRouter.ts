@@ -1,3 +1,4 @@
+import {isVideoUrl} from "../contracts/media";
 import { randomUUID, createHash } from "node:crypto";
 import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
@@ -6,7 +7,7 @@ import { createRouter, authedQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { posts, users, postImages, likes, collaborators, suggestions, reports, importedObservationData, datasetImportJobs, datasetImportEntries, cloudImageDeletions } from "../db/schema";
 import { DATASET_FORMAT, DATASET_VERSION, portablePostSchema } from "../contracts/dataset";
-import { cloudAssetUrl, cloudPublicId, cloudName, cloudinaryConfigured, deleteExistingBackup, deletedCloudImageUrls, probeCloudinary, requireCloudinary, signedImageUpload } from "./lib/cloudImages";
+import { cloudAssetUrl, cloudPublicId, cloudResourceType, cloudName, cloudinaryConfigured, deleteExistingBackup, deletedCloudImageUrls, probeCloudinary, requireCloudinary, signedImageUpload } from "./lib/cloudImages";
 import { prepareImageCleanup, queueCloudImages, kickCloudImageCleanup } from "./lib/imageCleanup";
 
 const owner = authedQuery.use(({ctx, next}) => {
@@ -45,7 +46,7 @@ async function discardUnfinishedJob(id: string) {
     // Upload signatures expire after one hour. Wait two hours before deleting abandoned reservations.
     if (job.updatedAt.getTime() > Date.now() - 2 * 60 * 60 * 1000) return;
     const unfinished = await tx.select().from(datasetImportEntries).where(and(eq(datasetImportEntries.jobId, id), isNull(datasetImportEntries.postId)));
-    for (const entry of unfinished) await queueCloudImages(tx, entry.publicIds.map(cloudAssetUrl));
+    for (const entry of unfinished) await queueCloudImages(tx, entry.publicIds.map((id, index) => cloudAssetUrl(id, isVideoUrl(entry.record.images[index]) ? "video" : "image")));
     await tx.update(datasetImportJobs).set({state: "cleaned"}).where(eq(datasetImportJobs.id, id));
   });
   kickCloudImageCleanup();
@@ -129,7 +130,7 @@ export const datasetRouter = createRouter({
       await tx.update(datasetImportJobs).set({updatedAt: new Date()}).where(eq(datasetImportJobs.id, input.jobId));
       return row;
     });
-    return {id: entry.id, postId: entry.postId, uploads: entry.postId ? [] : entry.publicIds.map(publicId => signedImageUpload(publicId))};
+    return {id: entry.id, postId: entry.postId, uploads: entry.postId ? [] : entry.publicIds.map((publicId, index) => signedImageUpload(publicId, isVideoUrl(entry.record.images[index]) ? "video" : "image"))};
   }),
   commitEntry: owner.input(z.object({jobId: z.string().uuid(), entryId: z.string().length(64), images: z.array(z.string().url().max(512))})).mutation(async ({ctx, input}) => {
     await prepareDatasetSchema();
@@ -138,7 +139,7 @@ export const datasetRouter = createRouter({
       const [entry] = await tx.select().from(datasetImportEntries).where(and(eq(datasetImportEntries.id, input.entryId), eq(datasetImportEntries.jobId, job.id))).limit(1).for("update");
       if (!entry) throw new TRPCError({code: "NOT_FOUND", message: "Aktarım kaydı bulunamadı."});
       if (entry.postId) return {id: entry.postId};
-      if (input.images.length !== entry.publicIds.length || input.images.some((url, index) => cloudPublicId(url) !== entry.publicIds[index])) throw new TRPCError({code: "BAD_REQUEST", message: "Fotoğraf ve gönderi eşlemesi uyuşmuyor."});
+      if (input.images.length !== entry.publicIds.length || input.images.some((url, index) => cloudPublicId(url) !== entry.publicIds[index] || cloudResourceType(url) !== (isVideoUrl(entry.record.images[index]) ? "video" : "image"))) throw new TRPCError({code: "BAD_REQUEST", message: "Fotoğraf ve gönderi eşlemesi uyuşmuyor."});
       if (job.authorId !== null) {
         const [author] = await tx.select({id: users.id}).from(users).where(eq(users.id, job.authorId)).limit(1).for("update");
         if (!author) throw new TRPCError({code: "BAD_REQUEST", message: "Seçilen kullanıcı artık mevcut değil."});

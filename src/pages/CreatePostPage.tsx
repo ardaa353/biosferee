@@ -7,7 +7,8 @@ import { useAuth } from "@/lib/auth";
 import { emptyTaxonomy, type Taxonomy } from "@contracts/taxonomy";
 import { errorMessage } from "@/lib/utils";
 import { uploadPreparedPhoto, type UploadedPhoto } from "@/lib/cloudinary";
-import { photoAccept, preparePhoto } from "@/lib/photos";
+import { prepareMedia, mediaAccept, isVideoFile, uploadVideo } from "@/lib/media";
+import { photoUrl } from "@/lib/photoUrls";
 import { SpeciesAssistant } from "@/components/SpeciesAssistant";
 import { TaxonomyFields } from "@/components/TaxonomyFields";
 import { PhotoThumb } from "@/components/PhotoThumb";
@@ -78,6 +79,8 @@ export function ObservationForm({ initial }: { initial?: BioPost }) {
   const [uploadProgress, setUploadProgress] = useState("");
 
   const users = trpc.biosfere.users.list.useQuery();
+  const videoSignature = trpc.biosfere.videoUpload.useMutation();
+  const completedVideos = useRef(new WeakMap<File, UploadedPhoto>());
   const create = trpc.biosfere.posts.create.useMutation();
   const update = trpc.biosfere.posts.update.useMutation();
   const utils = trpc.useUtils();
@@ -93,8 +96,8 @@ export function ObservationForm({ initial }: { initial?: BioPost }) {
     const ready: File[] = [], issues: string[] = [];
     try {
       for (const [index, file] of selected.entries()) {
-        setPreparing("Fotoğraflar hazırlanıyor… " + (index + 1) + "/" + selected.length);
-        try { ready.push(await preparePhoto(file)); }
+        setPreparing("Medya hazırlanıyor… " + (index + 1) + "/" + selected.length);
+        try { ready.push(await prepareMedia(file)); }
         catch (cause) { issues.push(file.name + " — " + errorMessage(cause)); }
       }
       if (ready.length) { resetAutomatic(); setFiles(current => [...current, ...ready]); }
@@ -113,7 +116,7 @@ export function ObservationForm({ initial }: { initial?: BioPost }) {
     setError("");
 
     if (files.length + keptImages.length === 0) {
-      setError("Lütfen en az bir fotoğraf seç.");
+      setError("Lütfen en az bir fotoğraf veya video seç.");
       return;
     }
 
@@ -144,7 +147,14 @@ export function ObservationForm({ initial }: { initial?: BioPost }) {
       const images: UploadedPhoto[] = [];
       for (const [index, file] of files.entries()) {
         setUploadProgress("Fotoğraflar yükleniyor… " + (index + 1) + "/" + files.length);
-        images.push(await uploadPreparedPhoto(file));
+        if (isVideoFile(file)) {
+          let uploaded = completedVideos.current.get(file);
+          if (!uploaded) {
+            uploaded = await uploadVideo(file, await videoSignature.mutateAsync(), setUploadProgress);
+            completedVideos.current.set(file, uploaded);
+          }
+          images.push(uploaded);
+        } else images.push(await uploadPreparedPhoto(file));
       }
       setUploadProgress("Gözlem kaydediliyor…");
       const payload = {
@@ -258,18 +268,18 @@ export function ObservationForm({ initial }: { initial?: BioPost }) {
         </section>
 
         <section>
-          <h2 className="mb-3 font-serif text-2xl">Fotoğraflar</h2>
+          <h2 className="mb-3 font-serif text-2xl">Fotoğraf ve videolar</h2>
           <label className="flex min-h-28 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-[#007f24]/45 bg-[#85c093]/10 p-5 text-center focus-within:ring-2 focus-within:ring-[#007f24]">
             <ImagePlus className="text-[#007f24]" />
-            <strong className="text-sm">{files.length + keptImages.length ? "Başka fotoğraf ekle" : "Fotoğraf seç"}</strong>
-            <span className="text-xs text-[#50665d]">Birden fazla fotoğraf seçebilirsin. Büyük görseller cihazında küçültülür.</span>
-            <input type="file" accept={photoAccept} multiple className="sr-only" onChange={handleFileChange} disabled={busy} />
+            <strong className="text-sm">{files.length + keptImages.length ? "Başka medya ekle" : "Fotoğraf veya video seç"}</strong>
+            <span className="text-xs text-[#50665d]">Fotoğraf ve videoları birlikte ekleyebilirsin. Videoların farklı anlarından tür tahmini yapılır.</span>
+            <input type="file" accept={mediaAccept} multiple className="sr-only" onChange={handleFileChange} disabled={busy} />
           </label>
           {preparing && <p className="mt-2 text-sm" role="status">{preparing}</p>}
           {fileIssues.length > 0 && <ul role="alert" className="mt-2 text-sm text-[#8d302a]">{fileIssues.map((m,i) => <li key={i}>{m}</li>)}</ul>}
           {keptImages.length > 0 && <fieldset disabled={busy} className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-5">
             {keptImages.map((image, index) => <div key={image.id} className="relative aspect-square overflow-hidden rounded-lg bg-[#eaf0e8]">
-              <img src={image.url} alt={"Mevcut fotoğraf " + (index + 1)} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+              <img src={photoUrl(image.url, 320)} alt={"Mevcut fotoğraf " + (index + 1)} loading="lazy" decoding="async" className="h-full w-full object-cover" />
               <button type="button" onClick={() => setKeptImages(current => current.filter(item => item.id !== image.id))}
                 className="absolute right-1 top-1 grid h-10 w-10 place-items-center rounded-full bg-white/90" aria-label={"Mevcut fotoğraf " + (index + 1) + " kaldır"}><X size={16} /></button>
             </div>)}
@@ -279,15 +289,15 @@ export function ObservationForm({ initial }: { initial?: BioPost }) {
           </fieldset>}
         </section>
 
-        {!unknown && <section>
+        <section>
           <h2 className="mb-3 font-serif text-2xl">Sistematik bilgiler</h2>
           <SpeciesAssistant files={files} location={hasLocation ? { lat, lng } : null}
-            onAutomatic={applyAutomatic} onChoose={selectTaxonomy} onCommonName={fillCommonName} />
+            onAutomatic={applyAutomatic} onChoose={value => {setUnknown(false); selectTaxonomy(value);}} onCommonName={fillCommonName} />
           <p className="mb-3 text-sm text-[#50665d]">Katalogda aramak için bilimsel adın en az iki harfini yaz. Bir takson seçtiğinde üst basamakları doldurulur.</p>
-          <TaxonomyFields value={tax} select={hit => selectTaxonomy(hit.taxonomy)} edit={(key, value) => {
+          {!unknown && <TaxonomyFields value={tax} select={hit => selectTaxonomy(hit.taxonomy)} edit={(key, value) => {
             taxonomyOrigin.current = "manual"; setTax(current => ({ ...current, [key]: value }));
-          }} />
-        </section>}
+          }} />}
+        </section>
 
         {/* Konum */}
         <section>

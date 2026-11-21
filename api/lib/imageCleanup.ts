@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { asc, eq, lte, sql, like, or } from "drizzle-orm";
 import { cloudImageDeletions, postImages, users } from "../../db/schema";
 import { getDb } from "../queries/connection";
-import { destroyCloudImage, isCloudinaryImageUrl, cloudPublicId, requireCloudinary, cloudinaryConfigured } from "./cloudImages";
+import { destroyCloudImage, isCloudinaryMediaUrl, cloudResourceType, cloudPublicId, requireCloudinary, cloudinaryConfigured } from "./cloudImages";
 import { log } from "./logger";
 
 type Transaction = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
@@ -30,12 +30,12 @@ export async function prepareImageCleanup(): Promise<void> {
 }
 
 // Call inside the same transaction that removes the final site reference.
-export async function queueCloudImages(tx: Transaction, urls: (string | null | undefined)[]) {
+export async function queueCloudImages(tx: Transaction, urls: (string | null | undefined)[], nextAttemptAt = new Date()) {
   for (const url of new Set(urls)) {
-    if (!url || !isCloudinaryImageUrl(url)) continue;
+    if (!url || !isCloudinaryMediaUrl(url)) continue;
     try { requireCloudinary(); } catch (error) { throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? error.message : "Cloudinary ayarları eksik." }); }
-    const id = createHash("sha256").update(cloudPublicId(url) || url).digest("hex");
-    await tx.insert(cloudImageDeletions).values({ id, fileKey: url }).onDuplicateKeyUpdate({ set: { id } });
+    const id = createHash("sha256").update(cloudResourceType(url) + ":" + (cloudPublicId(url) || url)).digest("hex");
+    await tx.insert(cloudImageDeletions).values({ id, fileKey: url, nextAttemptAt }).onDuplicateKeyUpdate({ set: { nextAttemptAt, attempts: 0, lastError: null } });
   }
 }
 
@@ -54,7 +54,7 @@ async function processBatch() {
       const encodedPattern = "%/" + encodeURIComponent(tail) + "%";
       const images = await tx.select({ url: postImages.fileKey }).from(postImages).where(or(like(postImages.fileKey, pattern), like(postImages.fileKey, encodedPattern)));
       const avatars = await tx.select({ url: users.avatarKey }).from(users).where(or(like(users.avatarKey, pattern), like(users.avatarKey, encodedPattern)));
-      if (publicId && [...images, ...avatars].some(row => row.url && cloudPublicId(row.url) === publicId)) {
+      if (publicId && [...images, ...avatars].some(row => row.url && cloudPublicId(row.url) === publicId && cloudResourceType(row.url) === cloudResourceType(job.fileKey))) {
         await tx.delete(cloudImageDeletions).where(eq(cloudImageDeletions.id, job.id));
         return true;
       }

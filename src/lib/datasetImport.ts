@@ -1,3 +1,4 @@
+import {isVideoFile, uploadVideo} from "./media";
 import type { PortablePost } from "@contracts/dataset";
 import type { DatasetArchive } from "./datasetArchive";
 import { preparePhoto } from "./photos";
@@ -23,9 +24,15 @@ export async function runDatasetImport(archive: DatasetArchive, authorId: number
       const key = entry.id + ":" + index, previous = session.uploads.get(key);
       if (previous) { images.push(previous); continue; }
       progress(`Gönderi ${number + 1} · fotoğraf ${index + 1} / ${record.images.length} yükleniyor…`);
-      const photo = await preparePhoto(await archive.readPhoto(path));
+      const source = await archive.readPhoto(path);
+      const signed = entry.uploads[index];
+      if (isVideoFile(source)) {
+        const uploaded = await uploadVideo(source, signed, progress, signal);
+        session.uploads.set(key, uploaded.contentBase64); images.push(uploaded.contentBase64); continue;
+      }
+      const photo = await preparePhoto(source);
       signal.throwIfAborted();
-      const signed = entry.uploads[index], body = new FormData();
+      const body = new FormData();
       for (const [key, value] of Object.entries(signed.fields)) body.append(key, value);
       body.append("file", photo);
       const response = await fetch(signed.url, {method: "POST", body, signal});

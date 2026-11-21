@@ -42,6 +42,13 @@ describe("portable observation archive", () => {
     await reader.close(); await archive.close();
     vi.restoreAllMocks();
   });
+  it("round-trips video files with a matching MIME type and portable path", async () => {
+    const data = {...manifest, posts: [{...manifest.posts[0], images: ["./photos/gonderi1.1.mp4"]}]};
+    const archive = await openDatasetArchive(await fixture(data, [["photos/gonderi1.1.mp4", new Uint8Array([0, 1, 2, 3])]]));
+    const file = await archive.readPhoto("./photos/gonderi1.1.mp4");
+    expect(file.type).toBe("video/mp4"); expect(file.size).toBe(4);
+    await archive.close();
+  });
   it.skipIf(!process.env.BIOSFERE_ARCHIVE_FIXTURES)("reads the actual Python ZIP and stored RAR fixture", async () => {
     const root = process.env.BIOSFERE_ARCHIVE_FIXTURES!;
     const zip = await openDatasetArchive(new File([new Uint8Array(readFileSync(root + "/python-export.zip"))], "python.zip"));

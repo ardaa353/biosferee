@@ -1,4 +1,5 @@
 import { emptyTaxonomy, type Taxonomy } from "@contracts/taxonomy";
+import { identificationFrames } from "./media";
 import { encodePhoto, withPhoto } from "./photos";
 
 export type IdentificationMode = "online" | "database" | "browser";
@@ -47,6 +48,8 @@ function safeHttps(value: string) { try { const url = new URL(value); return url
 
 export async function analyzeObservation(files: File[], mode: IdentificationMode, signal: AbortSignal, progress: (message: string) => void): Promise<AnalysisResult> {
   if (!files.length) throw new Error("Gönderiye fotoğraf ekleyin.");
+  const mediaCount = files.length;
+  files = await identificationFrames(files, signal, progress);
   if (mode === "browser") {
     const {identifyPhotos} = await import("./identification");
     const {catalogSearch, exactMatch} = await import("./catalog");
@@ -57,7 +60,7 @@ export async function analyzeObservation(files: File[], mode: IdentificationMode
       const result = await catalogSearch(name, "species", signal).catch(() => null);
       return {taxonomy: (result && exactMatch(result.results, name, kingdom)?.taxonomy) || {...emptyTaxonomy, kingdom, genus: name.split(" ")[0], species: name}, score: guess.score};
     }));
-    return {candidates, source: "Tarayıcı modelleri ve Catalogue of Life", photoCount: files.length, references: []};
+    return {candidates, source: "Tarayıcı modelleri ve Catalogue of Life", photoCount: mediaCount, references: []};
   }
   progress("Çevrim içi BioCLIP servisine bağlanılıyor. Büyük model indirilmez…");
   const {Client, handle_file} = await import("@gradio/client");
@@ -130,6 +133,6 @@ export async function analyzeObservation(files: File[], mode: IdentificationMode
         }
       }
     }
-    return {candidates: mergeCandidates(rows), source: mode === "online" ? "BioCLIP 2 · Imageomics/Hugging Face" : "BioCLIP Image Search Lite · TreeOfLife 200M+", photoCount: files.length, references: references.slice(0, 20)};
+    return {candidates: mergeCandidates(rows), source: mode === "online" ? "BioCLIP 2 · Imageomics/Hugging Face" : "BioCLIP Image Search Lite · TreeOfLife 200M+", photoCount: mediaCount, references: references.slice(0, 20)};
   } finally { combined.removeEventListener("abort", stop); stop(); }
 }

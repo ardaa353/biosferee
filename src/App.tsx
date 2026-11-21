@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { Loading, Logo, QueryError } from "@/components/BioUI";
+import PublicPostShell from "@/components/PublicPostShell";
 import AppShell from "@/components/AppShell";
 import { LoginPage, RegisterPage } from "@/pages/AuthPages";
 import { FeedPage, UnknownPage } from "@/pages/FeedPages";
@@ -52,12 +53,13 @@ export default function App() {
         <Route path="/giris" element={<LoginPage />} />
         <Route path="/kayit" element={<RegisterPage />} />
         
+        <Route element={<PublicPostShell />}><Route path="/gonderi/:id" element={<PostDetailPage />} /></Route>
         {/* Giriş yapmış kullanıcıların görebileceği sayfalar (Protected) */}
         <Route element={<Protected />}>
           <Route path="/akis" element={<FeedPage />} />
           <Route path="/paylas" element={<CreatePostPage />} />
           <Route path="/gonderi/:id/duzenle" element={<EditPostPage />} />
-          <Route path="/gonderi/:id" element={<PostDetailPage />} />
+
           <Route path="/bilinmeyenler" element={<UnknownPage />} />
           <Route path="/arama" element={<SearchPage />} />
           <Route path="/harita" element={<MapPage />} />

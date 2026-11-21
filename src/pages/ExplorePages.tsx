@@ -62,6 +62,7 @@ export function MapPage() {
 }
 
 export function SearchPage() {
+  const summary = trpc.biosfere.posts.summary.useQuery();
   const [term, setTerm] = useState("");
   const deferredTerm = useDeferredValue(term.trim());
   const postsQuery = trpc.biosfere.posts.list.useQuery(undefined, {enabled: deferredTerm.length >= 2});
@@ -103,6 +104,7 @@ export function SearchPage() {
         description="Şehir kipinde sonuçlar, türün platformdaki fotoğraf sayısına göre en az kayıtlı olandan en çok kayıtlı olana doğru sıralanır." 
       />
       
+      {summary.data && <dl className="mb-7 grid grid-cols-3 divide-x divide-[#09352e]/10 rounded-2xl border border-[#09352e]/10 bg-white py-4 text-center">{[[summary.data.verified, "gözlem"], [summary.data.species, "farklı tür"], [summary.data.cities, "il / bölge"]].map(([value, label]) => <div key={label}><dt className="text-xs text-[#53675f]">{label}</dt><dd className="font-serif text-2xl">{Number(value).toLocaleString("tr-TR")}</dd></div>)}</dl>}
       <div className="flex flex-col gap-3">
         <div className="relative"><Search className="absolute left-4 top-4 text-[#007f24]" size={20} />
         <input 

@@ -1,7 +1,7 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {runDatasetImport, type ImportSession} from "./datasetImport";
 import {buildWorkshopArchive, newWorkshopGroup} from "./workshop";
-vi.mock("./photos", () => ({preparePhoto: async (file: File) => file}));
+vi.mock("./photos", () => ({photoAccept: "image/*", preparePhoto: async (file: File) => file}));
 afterEach(() => vi.unstubAllGlobals());
 describe("direct workshop save", () => {
   it("resumes after a failed commit without reuploading photos or duplicating completed records", async () => {

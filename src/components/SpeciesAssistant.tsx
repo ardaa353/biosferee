@@ -38,7 +38,7 @@ export function SpeciesAssistant({files, location, onAutomatic, onChoose, onComm
   useEffect(() => {
     if (!files.length) { setChoices([]); setStatus(""); setFailed(false); setRunning(false); return; }
     const controller = new AbortController(), {signal} = controller;
-    setChoices([]); setSelected(""); setFailed(false); setRunning(true); setStatus("Fotoğraflar birlikte inceleniyor…");
+    setChoices([]); setSelected(""); setFailed(false); setRunning(true); setStatus("Fotoğraflar ve video kareleri inceleniyor…");
     void (async () => {
       try {
         let actual = mode, result;
@@ -52,7 +52,7 @@ export function SpeciesAssistant({files, location, onAutomatic, onChoose, onComm
         }
         signal.throwIfAborted();
         setUsedMode(actual); setChoices(result.candidates.slice(0, 5));
-        setStatus(result.candidates.length ? `${files.length} fotoğraf değerlendirildi. ${actual === "browser" ? "Cihaz modellerinin" : actual === "database" ? "Görsel veritabanının" : "BioCLIP 2'nin"} önerilerini örnek fotoğraflarla karşılaştırıp seçebilirsin.` : "Tür önerisi alınamadı. Katalogdan seçim yapabilirsin.");
+        setStatus(result.candidates.length ? `${files.length} medya değerlendirildi. ${actual === "browser" ? "Cihaz modellerinin" : actual === "database" ? "Görsel veritabanının" : "BioCLIP 2'nin"} önerilerini örnek fotoğraflarla karşılaştırıp seçebilirsin.` : "Tür önerisi alınamadı. Katalogdan seçim yapabilirsin.");
       } catch { if (!signal.aborted) { setFailed(true); setStatus("Fotoğraf analizi tamamlanamadı. Yeniden deneyebilir veya katalogdan seçim yapabilirsin."); } }
       finally { if (!signal.aborted) setRunning(false); }
     })();
@@ -70,7 +70,7 @@ export function SpeciesAssistant({files, location, onAutomatic, onChoose, onComm
   }, [profiles.data, selected, onCommonName]);
   if (!files.length) return null;
   return <div className="mb-4 rounded-xl border border-[#007f24]/20 bg-[#f4f8f2] p-4 text-sm">
-    <p className="text-base font-semibold">Fotoğraftan tür tahmini</p>
+    <p className="text-base font-semibold">Fotoğraf ve videodan tür tahmini</p>
     <label className="mt-3 block font-semibold">Ücretsiz tahmin yöntemi
       <select className={inputClass + " mt-2"} value={mode} onChange={event => setMode(event.target.value as IdentificationMode)}>
         <option value="online">Geniş kapsamlı çevrim içi BioCLIP 2</option>
@@ -79,7 +79,7 @@ export function SpeciesAssistant({files, location, onAutomatic, onChoose, onComm
       </select>
     </label>
     <p role="status" aria-live="polite" className="mt-3 leading-6 text-[#40574c]">{status}</p>
-    <p className="mt-2 text-xs leading-5 text-[#5f7169]">{mode === "browser" ? "Fotoğraflar cihazında incelenir; gerekli küçük modeller ilk kullanımda alınır." : "Çevrim içi analizde fotoğrafların konum bilgisi içermeyen kopyaları Imageomics/Hugging Face'e gönderilir. Ücretli API anahtarı gerekmez; ortak serviste sıra veya erişim sınırı olabilir."} Öneriler kesin teşhis değildir. Örnek görseller karşılaştırma içindir.</p>
+    <p className="mt-2 text-xs leading-5 text-[#5f7169]">{mode === "browser" ? "Fotoğraflar cihazında incelenir; gerekli küçük modeller ilk kullanımda alınır." : "Çevrim içi analizde fotoğrafların ve video karelerinin konum bilgisi içermeyen kopyaları Imageomics/Hugging Face'e gönderilir. Ücretli API anahtarı gerekmez; ortak serviste sıra veya erişim sınırı olabilir."} Öneriler kesin teşhis değildir. Örnek görseller karşılaştırma içindir.</p>
     {profiles.isFetching && choices.length > 0 && <p className="mt-2 text-xs text-[#50665d]">Yaygın adlar ve örnek fotoğraflar getiriliyor…</p>}
     {!running && (failed || choices.length > 0) && <button className="mt-3 min-h-10 font-semibold underline" type="button" onClick={() => { if (choices.length) void profiles.refetch(); setAttempt(value => value + 1); }}>Tahmini yenile</button>}
     {choices.length > 0 && <ul className="mt-4 grid items-start gap-3 grid-cols-2 sm:grid-cols-3">{choices.map(candidate => {
