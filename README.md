@@ -21,3 +21,9 @@ Sekiz görüntü modeli cihazın işlemcisinde bir Web Worker içinde çalışı
 ## Doğrulama
 
 `npm run check` TypeScript denetimini, `npm test` regresyon testlerini çalıştırır. Geliştirme sunucusu `npm run dev` ile açılır. Yerel kataloğu ilk geliştirme oturumundan önce hazırlamak için `npm run prebuild` kullanılabilir.
+
+## Bulut fotoğraf temizliği
+
+Fotoğraf kaldırma, gönderi veya hesap silme, profil fotoğrafını değiştirme ve moderasyonla kaldırma işlemleri Cloudinary temizliği oluşturur. Silinecek dosya aynı MySQL işleminde kalıcı kuyruğa yazılır. Sunucu hemen temizliği başlatır ve başarısız işlemleri yeniden dener. Başka bir gönderi veya profil tarafından kullanılan aynı fotoğraf korunur. Cloudinary'nin silme yanıtı doğrulanır ve CDN geçersizleştirmesi istenir.
+
+Sunucu, `cloud_image_deletions` tablosunu ilk kullanımda otomatik oluşturur. Veritabanı kullanıcısının tablo oluşturma izni ve Render'da doğru `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `CLOUDINARY_CLOUD_NAME` değerleri gerekir. Önceki sürümlerde bulutta sahipsiz kalmış ve artık veritabanında adresi bulunmayan dosyalar bu kuyrukla geriye dönük bulunamaz.

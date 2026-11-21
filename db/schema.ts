@@ -57,6 +57,15 @@ export const postImages = mysqlTable("post_images", {
   sortOrder: int("sort_order").notNull().default(0),
 }, (t) => ({ postIdx: index("image_post_idx").on(t.postId) }));
 
+export const cloudImageDeletions = mysqlTable("cloud_image_deletions", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  fileKey: varchar("file_key", { length: 512 }).notNull(),
+  attempts: int("attempts", { unsigned: true }).notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),
+  lastError: varchar("last_error", { length: 500 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, t => ({ dueIdx: index("cloud_deletion_due_idx").on(t.nextAttemptAt) }));
+
 export const likes = mysqlTable("likes", {
   id: serial("id").primaryKey(),
   postId: bigint("post_id", { mode: "number", unsigned: true }).notNull(),

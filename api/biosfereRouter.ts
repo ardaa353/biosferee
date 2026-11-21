@@ -1,8 +1,9 @@
+import { prepareImageCleanup, queueCloudImages, kickCloudImageCleanup } from "./lib/imageCleanup";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, between, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { destroyCloudImage, isCloudinaryImageUrl } from "./lib/cloudImages";
+import { isCloudinaryImageUrl } from "./lib/cloudImages";
 
 import {
   createRouter,
@@ -272,12 +273,16 @@ export const biosfereRouter = createRouter({
     updateProfile: authedQuery
       .input(z.object({ bio: z.string().trim().min(3).max(1000), avatar: imageInput.optional() }))
       .mutation(async ({ ctx, input }) => {
-        let avatarKey = ctx.user.avatarKey;
-        if (input.avatar) {
-          const saved = await resolveImages([input.avatar]);
-          avatarKey = saved[0].key;
-        }
-        await getDb().update(users).set({ bio: input.bio, avatarKey }).where(eq(users.id, ctx.user.id));
+        await prepareImageCleanup();
+        const saved = input.avatar ? await resolveImages([input.avatar]) : [];
+        await getDb().transaction(async tx => {
+          const [user] = await tx.select().from(users).where(eq(users.id, ctx.user.id)).limit(1).for("update");
+          if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "Kullanıcı bulunamadı." });
+          const avatarKey = saved[0]?.key ?? user.avatarKey;
+          await tx.update(users).set({ bio: input.bio, avatarKey }).where(eq(users.id, user.id));
+          if (avatarKey !== user.avatarKey) await queueCloudImages(tx, [user.avatarKey]);
+        });
+        kickCloudImageCleanup();
         return { ok: true };
       }),
 
@@ -333,32 +338,14 @@ export const biosfereRouter = createRouter({
           throw new TRPCError({ code: "FORBIDDEN", message: "Bu hesabı silme yetkiniz yok." });
         }
 
-        const [targetUser] = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
-        if (!targetUser) throw new TRPCError({ code: "NOT_FOUND", message: "Kullanıcı bulunamadı." });
-
-        if (targetUser.avatarKey) {
-          try {
-            await destroyCloudImage(targetUser.avatarKey);
-          } catch (err) {
-            console.error("Cloudinary profil resmi silme hatası:", err);
-          }
-        }
-
-        const userPosts = await db.select({ id: posts.id }).from(posts).where(eq(posts.authorId, targetUser.id));
-        if (userPosts.length > 0) {
-          const postIds = userPosts.map(p => p.id);
-          const imagesToDelete = await db.select().from(postImages).where(inArray(postImages.postId, postIds));
-          
-          for (const img of imagesToDelete) {
-            try {
-              await destroyCloudImage(img.fileKey);
-            } catch (err) {
-              console.error("Cloudinary post resmi silme hatası:", err);
-            }
-          }
-        }
-
-        await db.transaction(async (tx) => {
+        await prepareImageCleanup();
+        await db.transaction(async tx => {
+          const [targetUser] = await tx.select().from(users).where(eq(users.id, input.userId)).limit(1).for("update");
+          if (!targetUser) throw new TRPCError({ code: "NOT_FOUND", message: "Kullanıcı bulunamadı." });
+          const userPosts = await tx.select({ id: posts.id }).from(posts).where(eq(posts.authorId, targetUser.id)).for("update");
+          const imagesToDelete = userPosts.length
+            ? await tx.select().from(postImages).where(inArray(postImages.postId, userPosts.map(post => post.id))) : [];
+          await queueCloudImages(tx, [targetUser.avatarKey, ...imagesToDelete.map(image => image.fileKey)]);
           await tx.delete(sessions).where(eq(sessions.userId, targetUser.id));
           await tx.delete(likes).where(eq(likes.userId, targetUser.id));
           await tx.delete(collaborators).where(eq(collaborators.userId, targetUser.id));
@@ -377,6 +364,7 @@ export const biosfereRouter = createRouter({
 
           await tx.delete(users).where(eq(users.id, targetUser.id));
         });
+        kickCloudImageCleanup();
 
         return { ok: true };
       }),
@@ -413,6 +401,8 @@ export const biosfereRouter = createRouter({
         };
         const partnerIds = [...new Set(input.collaboratorIds)].filter(id => id !== ctx.user.id);
         return db.transaction(async tx => {
+          const [author] = await tx.select({ id: users.id }).from(users).where(eq(users.id, ctx.user.id)).limit(1).for("update");
+          if (!author) throw new TRPCError({ code: "UNAUTHORIZED", message: "Yeniden giriş yapmalısınız." });
           const [{ id }] = await tx.insert(posts).values({
             authorId: ctx.user.id, description: input.description,
             status: input.unknown ? "unknown" : "verified",
@@ -437,7 +427,8 @@ export const biosfereRouter = createRouter({
       }))
       .mutation(async ({ ctx, input }) => {
         const savedImages = await resolveImages(input.images);
-        return getDb().transaction(async tx => {
+        await prepareImageCleanup();
+        const result = await getDb().transaction(async tx => {
           const [post] = await tx.select().from(posts).where(eq(posts.id, input.id)).limit(1).for("update");
           if (!post || post.status === "removed") throw new TRPCError({ code: "NOT_FOUND", message: "Gönderi bulunamadı." });
           if (post.authorId !== ctx.user.id && ctx.user.role !== "admin") {
@@ -463,7 +454,9 @@ export const biosfereRouter = createRouter({
             status: input.unknown ? "unknown" : "verified",
             city: input.city, locality: input.locality, lat: input.lat, lng: input.lng,
           }).where(eq(posts.id, post.id));
-          const removedIds = currentImages.filter(image => !keptIds.includes(image.id)).map(image => image.id);
+          const removed = currentImages.filter(image => !keptIds.includes(image.id));
+          await queueCloudImages(tx, removed.map(image => image.fileKey));
+          const removedIds = removed.map(image => image.id);
           if (removedIds.length) await tx.delete(postImages).where(and(eq(postImages.postId, post.id), inArray(postImages.id, removedIds)));
           for (const [sortOrder, id] of keptIds.entries()) {
             await tx.update(postImages).set({ sortOrder }).where(and(eq(postImages.id, id), eq(postImages.postId, post.id)));
@@ -478,6 +471,8 @@ export const biosfereRouter = createRouter({
           if (partnerIds.length) await tx.insert(collaborators).values(partnerIds.map(userId => ({postId: post.id, userId})));
           return { id: post.id };
         });
+        kickCloudImageCleanup();
+        return result;
       }),
 
     toggleLike: authedQuery
@@ -516,25 +511,15 @@ export const biosfereRouter = createRouter({
       .mutation(async ({ ctx, input }) => {
         const db = getDb();
 
-        const [post] = await db.select().from(posts).where(eq(posts.id, input.postId)).limit(1);
-        if (!post) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Gönderi bulunamadı." });
-        }
-
-        if (post.authorId !== ctx.user.id && ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Bu gönderiyi silme yetkiniz yok." });
-        }
-
-        const images = await db.select().from(postImages).where(eq(postImages.postId, post.id));
-        for (const img of images) {
-          try {
-            await destroyCloudImage(img.fileKey);
-          } catch (err) {
-            console.error("Cloudinary silme hatası:", err);
+        await prepareImageCleanup();
+        await db.transaction(async tx => {
+          const [post] = await tx.select().from(posts).where(eq(posts.id, input.postId)).limit(1).for("update");
+          if (!post) throw new TRPCError({ code: "NOT_FOUND", message: "Gönderi bulunamadı." });
+          if (post.authorId !== ctx.user.id && ctx.user.role !== "admin") {
+            throw new TRPCError({ code: "FORBIDDEN", message: "Bu gönderiyi silme yetkiniz yok." });
           }
-        }
-
-        await db.transaction(async (tx) => {
+          const images = await tx.select().from(postImages).where(eq(postImages.postId, post.id));
+          await queueCloudImages(tx, images.map(image => image.fileKey));
           await tx.delete(likes).where(eq(likes.postId, post.id));
           await tx.delete(reports).where(eq(reports.postId, post.id));
           await tx.delete(suggestions).where(eq(suggestions.postId, post.id));
@@ -542,6 +527,7 @@ export const biosfereRouter = createRouter({
           await tx.delete(postImages).where(eq(postImages.postId, post.id));
           await tx.delete(posts).where(eq(posts.id, post.id));
         });
+        kickCloudImageCleanup();
 
         return { ok: true };
       }),
@@ -653,14 +639,21 @@ export const biosfereRouter = createRouter({
         const [report] = await db.select().from(reports).where(eq(reports.id, input.reportId)).limit(1);
         if (!report) throw new TRPCError({ code: "NOT_FOUND" });
 
-        await db
-          .update(reports)
-          .set({ status: input.action === "dismiss" ? "dismissed" : "resolved" })
-          .where(eq(reports.id, input.reportId));
-
-        if (input.action === "remove") {
-          await db.update(posts).set({ status: "removed" }).where(eq(posts.id, report.postId));
-        }
+        if (input.action === "remove") await prepareImageCleanup();
+        await db.transaction(async tx => {
+          if (input.action === "remove") {
+            const [post] = await tx.select({ id: posts.id }).from(posts).where(eq(posts.id, report.postId)).limit(1).for("update");
+            if (post) {
+              const images = await tx.select().from(postImages).where(eq(postImages.postId, post.id));
+              await queueCloudImages(tx, images.map(image => image.fileKey));
+              await tx.delete(postImages).where(eq(postImages.postId, post.id));
+              await tx.update(posts).set({ status: "removed" }).where(eq(posts.id, post.id));
+            }
+          }
+          await tx.update(reports).set({ status: input.action === "dismiss" ? "dismissed" : "resolved" })
+            .where(eq(reports.id, input.reportId));
+        });
+        if (input.action === "remove") kickCloudImageCleanup();
         return { ok: true };
       }),
   }),

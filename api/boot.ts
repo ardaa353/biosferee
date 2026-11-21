@@ -1,3 +1,4 @@
+import { startCloudImageCleanup } from "./lib/imageCleanup";
 import { ranks } from "../contracts/taxonomy";
 import { searchCatalog } from "./lib/catalog";
 import { Hono } from "hono";
@@ -111,6 +112,7 @@ if (env.isProduction) {
   const { serveStaticFiles } = await import("./lib/vite");
   serveStaticFiles(app);
 
+  startCloudImageCleanup();
   const port = parseInt(process.env.PORT || "3000");
   serve({ fetch: app.fetch, port }, () => {
     log.info(`Server running on http://localhost:${port}/`);
