@@ -17,6 +17,7 @@ describe("Dil seçimi", () => {
     expect(getLocale()).toBe("tr");
     setAccountLanguage("en");
     expect(t("Yeni gözlem")).toBe("New observation");
+    expect(t("Bilinmeyen")).toBe("Unknown");
     setAccountLanguage(null);
     expect(getLocale()).toBe("en");
     vi.stubGlobal("navigator", { language: "tr-TR" });

@@ -1,6 +1,7 @@
 import {
   decodeTranslationEntities,
   languageCodes,
+  needsContentTranslation,
   selectMyMemoryTranslation,
   splitTranslationText,
 } from "@contracts/translation";
@@ -28,6 +29,16 @@ export async function translateInBrowser(
   target: Locale,
   signal: AbortSignal,
 ) {
+  signal.throwIfAborted();
+  if (!needsContentTranslation(source, target))
+    return {
+      original: text,
+      text,
+      source,
+      provider: "",
+      translated: false,
+      unavailable: false,
+    };
   return withSlot(signal, async () => {
     const parts: string[] = [];
     for (const chunk of splitTranslationText(text)) {

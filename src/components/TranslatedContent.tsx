@@ -1,7 +1,12 @@
+import {
+  contentLanguageHint,
+  needsContentTranslation,
+  languageCodes,
+} from "@contracts/translation";
 import { useQuery } from "@tanstack/react-query";
 import { translateInBrowser } from "@/lib/contentTranslation";
 import { t as trText } from "@/lib/i18n";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { t, useLocale } from "@/lib/i18n";
 export default function TranslatedContent({
@@ -17,6 +22,9 @@ export default function TranslatedContent({
 }) {
   const locale = useLocale();
   const utils = trpc.useUtils();
+  const sourceHint = useMemo(() => contentLanguageHint(text), [text]);
+  const matchesLanguage =
+    sourceHint !== undefined && !needsContentTranslation(sourceHint, locale);
   const container = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   const [original, setOriginal] = useState(false);
@@ -52,7 +60,7 @@ export default function TranslatedContent({
         .toString(36),
     },
     {
-      enabled: visible && Boolean(text.trim()),
+      enabled: visible && !matchesLanguage && Boolean(text.trim()),
       staleTime: (query) =>
         query.state.data?.unavailable ? 15000 : 30 * 60000,
       retry: false,
@@ -60,10 +68,13 @@ export default function TranslatedContent({
   );
   // Edited records must never display an older cached translation.
   const serverResult = query.data?.original === text ? query.data : undefined;
+  const source = sourceHint ?? serverResult?.source;
+  const translationNeeded = needsContentTranslation(source, locale);
   const fallback = useQuery({
     queryKey: ["observation-translation", kind, id, locale, text],
     enabled:
       visible &&
+      translationNeeded &&
       Boolean(
         serverResult?.needsClientTranslation ||
         serverResult?.unavailable ||
@@ -75,7 +86,7 @@ export default function TranslatedContent({
       try {
         return await translateInBrowser(
           text,
-          serverResult?.source || (locale === "en" ? "tur" : "eng"),
+          source || (locale === "en" ? "tur" : "eng"),
           locale,
           signal,
         );
@@ -93,23 +104,24 @@ export default function TranslatedContent({
       }
     },
   });
-  const result = serverResult?.translated
-    ? serverResult
-    : fallback.data?.original === text
-      ? fallback.data
-      : serverResult;
-  const translating = query.isFetching || fallback.isFetching;
+  const result = !translationNeeded
+    ? undefined
+    : serverResult?.translated
+      ? serverResult
+      : fallback.data?.original === text
+        ? fallback.data
+        : serverResult;
+  const translating =
+    translationNeeded && (query.isFetching || fallback.isFetching);
   return (
     <div ref={container}>
       <p
         className={className}
         lang={
           original || !result?.translated
-            ? result?.source === "tur"
-              ? "tr"
-              : result?.source === "eng"
-                ? "en"
-                : result?.source
+            ? source
+              ? languageCodes[source] || source
+              : undefined
             : locale
         }
       >
@@ -130,7 +142,8 @@ export default function TranslatedContent({
         <p role="status" className="mt-2 text-xs text-[#71807e]">
           {t("Çevriliyor…")}
         </p>
-      ) : result?.unavailable || query.isError || fallback.isError ? (
+      ) : translationNeeded &&
+        (result?.unavailable || query.isError || fallback.isError) ? (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#71807e]">
           <span>
             {t("Çeviri şu anda kullanılamıyor. Özgün metin gösteriliyor.")}

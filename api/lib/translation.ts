@@ -3,6 +3,8 @@ import {
   decodeTranslationEntities,
   splitTranslationText,
   languageCodes,
+  contentLanguageHint,
+  needsContentTranslation,
 } from "../../contracts/translation";
 export {
   selectMyMemoryTranslation,
@@ -10,7 +12,7 @@ export {
   splitTranslationText,
 } from "../../contracts/translation";
 import { createHash } from "node:crypto";
-import { franc } from "franc-min";
+import { franc, francAll } from "franc-min";
 import { eq } from "drizzle-orm";
 import { textTranslations } from "../../db/schema";
 import { getDb } from "../queries/connection";
@@ -41,17 +43,15 @@ async function withSlot<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 export function detectLanguage(text: string): string {
-  if (/[ğışİĞŞ]/.test(text)) return "tur";
-  if (
-    /\b(the|this|was|were|with|found|observed|near|leaves|flower|bird)\b/i.test(
-      text,
-    ) &&
-    !/\b(bir|bu|olan|ile|için)\b/i.test(text)
-  )
-    return "eng";
-  const language = franc(text, { minLength: 20 });
-  return language === "und" ? "tur" : language;
+  const hint = contentLanguageHint(text);
+  if (hint) return hint;
+  const language = franc(text, { minLength: 10 });
+  if (language !== "und") return language;
+  return (
+    francAll(text, { only: ["eng", "tur"], minLength: 3 })[0]?.[0] || "und"
+  );
 }
+
 function remember(key: string, value: Translation) {
   if (cache.size >= 1000) cache.delete(cache.keys().next().value!);
   cache.set(key, value);
@@ -150,8 +150,7 @@ export async function translateContent(
     provider: "",
     translated: false,
   };
-  if (!text.trim() || source === (target === "en" ? "eng" : "tur"))
-    return original;
+  if (!text.trim() || !needsContentTranslation(source, target)) return original;
   const key = createHash("sha256")
     .update("v1\0" + target + "\0" + text)
     .digest("hex");

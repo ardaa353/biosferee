@@ -185,7 +185,7 @@ export default function AppShell() {
           {
             to: "/bilinmeyenler",
             label: trText("Türü bilinmeyenler"),
-            short: "Bilinmeyen",
+            short: trText("Bilinmeyen"),
             icon: CircleHelp,
           },
           {
@@ -198,7 +198,7 @@ export default function AppShell() {
           <NavLink
             key={item.to}
             to={item.to}
-            aria-label={item.label}
+            aria-label={trText(item.label)}
             className={({ isActive }) =>
               `flex min-h-[68px] min-w-0 flex-col items-center justify-center gap-1 text-[10px] font-medium ${isActive ? "text-[#007f24]" : "text-[#556c60]"}`
             }

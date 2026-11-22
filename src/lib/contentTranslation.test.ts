@@ -39,6 +39,32 @@ describe("Tarayıcıdan not çevirisi", () => {
     });
     expect(options).not.toHaveProperty("headers");
   });
+  it.each([
+    ["This is an English note.", "eng", "en"],
+    ["Biology student", "en-GB", "en"],
+    ["Bu bir gözlem notu.", "tur", "tr"],
+    ["Biyoloji öğrencisiyim.", "tr-TR", "tr"],
+  ] as const)(
+    "aynı dildeki metni servise göndermeden korur: %s",
+    async (text, source, target) => {
+      const fetch = vi.fn();
+      vi.stubGlobal("fetch", fetch);
+      expect(
+        await translateInBrowser(
+          text,
+          source,
+          target,
+          new AbortController().signal,
+        ),
+      ).toMatchObject({
+        text,
+        original: text,
+        translated: false,
+        provider: "",
+      });
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
   it("benzer fakat farklı cümleyi göstermez", async () => {
     vi.stubGlobal(
       "fetch",

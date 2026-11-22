@@ -151,3 +151,51 @@ export const languageCodes: Record<string, string> = {
   zul: "zu",
   bel: "be",
 };
+
+/** Fast language hints for short notes and biographies, without loading a model in the browser. */
+export function contentLanguageHint(
+  text: string,
+): "eng" | "tur" | "und" | undefined {
+  const clean = text.replace(/https?:\/\/\S+|\S+@\S+\.\S+/gi, " ");
+  const words = clean.match(/\p{L}+/gu) ?? [];
+  if (!words.length) return "und";
+  const fold = (word: string) =>
+    word
+      .normalize("NFKD")
+      .replace(/\p{M}/gu, "")
+      .replace(/ı/g, "i")
+      .toLowerCase();
+  const english =
+    /^(?:i|am|my|the|this|that|these|those|and|with|for|from|was|were|is|are|have|has|its|it|of|in|at|on|to|a|an|as|found|observed|near|leaves|flower|flowers|bird|birds|biology|biologist|biologists|biological|botany|botanist|ecology|ecologist|student|students|researcher|research|nature|naturalist|wildlife|wildflower|mushroom|forest|river|field|notes|studying|science|scientist|photographer|photography|enthusiast|hello|nice|beautiful|great|photo|picture|green|yellow|black|white|blue)$/;
+  const turkish =
+    /^(?:ben|ve|bir|bu|su|ile|icin|olarak|gibi|olan|cok|daha|ama|da|de|var|yok|merhaba|guzel|guzeldi|mavi|sari|yesil|siyah|beyaz|renkli|rengi|yaprak|yapraklari|bitki|bitkisi|kus|kusun|orman|ormanda|bulundu|bulunan|bulundugu|biyoloji|biyolog|botanik|zooloji|ekoloji|doga|dogayi|dogada)$/;
+  let en = 0,
+    tr = 0;
+  for (const word of words) {
+    const normalized = fold(word);
+    if (english.test(normalized))
+      en += /^(?:a|in|as|at|on|to|of|is|it|its)$/.test(normalized) ? 1 : 3;
+    if (
+      turkish.test(normalized) ||
+      /^(?:ogrenci|gozlem|fotograf|arastir|universite|akademisyen|dogasever)/.test(
+        normalized,
+      )
+    )
+      tr += /^(?:da|de)$/.test(normalized) ? 1 : 3;
+    // A place name such as İstanbul in an English sentence must not decide the sentence's language.
+    if (/[ğışĞŞ]/.test(word)) tr += 2;
+    else if (/[çöüÇÖÜ]/.test(word)) tr += 1;
+  }
+  if (en >= 3 && en > tr * 1.3) return "eng";
+  if (tr >= 3 && tr > en * 1.3) return "tur";
+  return undefined;
+}
+export function needsContentTranslation(
+  source: string | undefined,
+  target: "tr" | "en",
+): boolean {
+  if (!source || source === "und") return false;
+  const canonical =
+    languageCodes[source] || source.toLowerCase().split(/[-_]/)[0];
+  return canonical !== target;
+}

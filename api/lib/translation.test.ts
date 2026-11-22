@@ -1,3 +1,4 @@
+import { contentLanguageHint } from "../../contracts/translation";
 import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("./localization", () => ({
   prepareLocalization: vi.fn(async () => {
@@ -27,6 +28,35 @@ describe("Gözlem metni çevirisi", () => {
       await translateContent("This bird was found near the river.", "en"),
     ).toMatchObject({ translated: false });
     expect(fetch).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["Biology student", "en", "eng", false],
+    ["Biology student", "tr", "eng", true],
+    ["Biyoloji öğrencisiyim.", "tr", "tur", false],
+    ["Biyoloji öğrencisiyim.", "en", "tur", true],
+    ["I study biology in İstanbul.", "en", "eng", false],
+    ["I study biology in İstanbul.", "tr", "eng", true],
+    ["Ekşisuda bulundu ve gerçekten güzel", "tr", "tur", false],
+    ["Bu bitki ormanda gözlemlendi.", "en", "tur", true],
+  ] as const)(
+    "not/biyografi %s, hedef %s için doğru çeviri kararını verir",
+    async (text, target, source, needed) => {
+      const fetch = vi.fn();
+      vi.stubGlobal("fetch", fetch);
+      const result = await translateContent(text, target, true);
+      expect(result.source).toBe(source);
+      expect(result.needsClientTranslation === true).toBe(needed);
+      expect(result.translated).toBe(false);
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+  it("başka dillerdeki ortak tek sözcükleri İngilizce veya Türkçe saymaz", () => {
+    expect(
+      contentLanguageHint("Diese Pflanze wächst in einem schattigen Wald."),
+    ).toBeUndefined();
+    expect(
+      contentLanguageHint("Esta flor crece en el bosque de la montaña."),
+    ).toBeUndefined();
   });
   it("farklı cümlenin benzer eşleşmesini çeviri olarak kabul etmez", () => {
     expect(
