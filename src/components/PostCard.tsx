@@ -1,5 +1,5 @@
 import CommonName from "@/components/CommonName";
-import { t as trText } from "@/lib/i18n";
+import { getLocale, t as trText } from "@/lib/i18n";
 import TranslatedContent from "./TranslatedContent";
 import { createPortal } from "react-dom";
 import PhotoGallery from "@/components/PhotoGallery";
@@ -264,7 +264,11 @@ function PostCard({
       <PhotoGallery
         priority={priority}
         images={post.images}
-        alt={post.commonName || post.species || trText("Canlı gözlemi")}
+        alt={
+          (getLocale() === "en"
+            ? post.species
+            : post.commonName || post.species) || trText("Canlı gözlemi")
+        }
       />
 
       <div className="flex flex-wrap items-start justify-between gap-3">

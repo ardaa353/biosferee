@@ -29,7 +29,9 @@ function displayTaxonomy(
     commonName:
       profile?.commonNameLanguage === getLocale()
         ? profile.commonName
-        : candidate.taxonomy.commonName,
+        : getLocale() === "en"
+          ? candidate.modelCommonName || ""
+          : candidate.taxonomy.commonName,
   };
 }
 function CandidateCard({
