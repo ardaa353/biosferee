@@ -17,13 +17,20 @@ export function prepareLocalization() {
   }));
 }
 export async function getUserLanguage(userId: number): Promise<Locale | null> {
-  await prepareLocalization();
-  const [row] = await getDb()
-    .select()
-    .from(userPreferences)
-    .where(eq(userPreferences.userId, userId))
-    .limit(1);
-  return row?.language === "en" || row?.language === "tr" ? row.language : null;
+  try {
+    await prepareLocalization();
+    const [row] = await getDb()
+      .select()
+      .from(userPreferences)
+      .where(eq(userPreferences.userId, userId))
+      .limit(1);
+    return row?.language === "en" || row?.language === "tr"
+      ? row.language
+      : null;
+  } catch {
+    // A preference-storage outage must not lock existing users out of their accounts.
+    return null;
+  }
 }
 export async function saveUserLanguage(userId: number, language: Locale) {
   await prepareLocalization();
