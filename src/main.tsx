@@ -4,6 +4,8 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router'
 import './index.css'
 import { TRPCProvider } from "@/providers/trpc"
+import AppStartup from "@/components/AppStartup"
+import { installStartupCache } from "@/lib/startup"
 import App from './App.tsx'
 import ErrorBoundary from '@/components/ErrorBoundary'
 
@@ -11,8 +13,10 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <TRPCProvider>
-        <ErrorBoundary><App /></ErrorBoundary>
+        <ErrorBoundary><AppStartup><App /></AppStartup></ErrorBoundary>
       </TRPCProvider>
     </BrowserRouter>
   </StrictMode>,
 )
+
+installStartupCache();

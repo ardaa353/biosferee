@@ -8,6 +8,7 @@ export function serveStaticFiles(app: Hono<{ Bindings: HttpBindings }>) {
   const index = readFileSync(resolve("dist/public/index.html"), "utf8");
   app.use("/assets/*", async (c, next) => { await next(); if (c.res.ok) c.header("Cache-Control", "public, max-age=31536000, immutable"); });
   app.use("/identification/assets/*", async (c, next) => { await next(); if (c.res.ok) c.header("Cache-Control", c.req.path.endsWith("/worker.js") ? "no-cache" : "public, max-age=31536000, immutable"); });
+  app.use("/startup-sw.js", async (c, next) => {await next(); if (c.res.ok) c.header("Cache-Control", "no-cache");});
   app.use("*", serveStatic({ root: "./dist/public" }));
   app.notFound(c => {
     if (!c.req.header("accept")?.includes("text/html") || c.req.path.startsWith("/assets/")) return c.json({ error: "Not Found" }, 404);

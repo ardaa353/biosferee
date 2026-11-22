@@ -88,6 +88,10 @@ app.post(
   bodyLimit({ maxSize: 64 * 1024, onError: (c) => c.body(null, 413) }),
   handleClientLog,
 );
+app.get("/api/health", c => {
+  c.header("Cache-Control", "no-store");
+  return c.json({status: "ok"});
+});
 app.get("/api/taxa", async c => {
   const q = (c.req.query("q") ?? "").trim();
   const rank = ranks.find(value => value === c.req.query("rank"));

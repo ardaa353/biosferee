@@ -1,8 +1,9 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router";
 import { AuthProvider, useAuth } from "@/lib/auth";
-import { Loading, Logo, QueryError } from "@/components/BioUI";
+import { Logo, QueryError } from "@/components/BioUI";
 import PublicPostShell from "@/components/PublicPostShell";
+import StartupScreen from "@/components/StartupScreen";
 import AppShell from "@/components/AppShell";
 import { LoginPage, RegisterPage } from "@/pages/AuthPages";
 import { FeedPage, UnknownPage } from "@/pages/FeedPages";
@@ -19,14 +20,14 @@ const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 
 function Protected() { 
   const { user, loading, error, refresh } = useAuth(); 
-  if (loading) return <div className="grid min-h-dvh place-items-center"><Loading label="BioSfere açılıyor…" /></div>; 
+  if (loading) return <StartupScreen />; 
   if (error && !user) return <main className="mx-auto max-w-lg px-5 pt-20"><QueryError retry={refresh} /></main>;
   return user ? <AppShell /> : <Navigate to="/giris" replace />; 
 }
 
 function HomeRedirect() { 
   const { user, loading } = useAuth(); 
-  if (loading) return <Loading />; 
+  if (loading) return <StartupScreen />; 
   return <Navigate to={user ? "/akis" : "/giris"} replace />; 
 }
 
@@ -48,7 +49,7 @@ function NotFound() {
 export default function App() { 
   return (
     <AuthProvider>
-      <Suspense fallback={<Loading />}><Routes>
+      <Suspense fallback={<StartupScreen />}><Routes>
         <Route path="/" element={<HomeRedirect />} />
         <Route path="/giris" element={<LoginPage />} />
         <Route path="/kayit" element={<RegisterPage />} />
