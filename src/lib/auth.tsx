@@ -1,3 +1,4 @@
+import { setAccountLanguage } from "./i18n";
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { trpc, queryClient } from "@/providers/trpc";
 import type { CurrentUser } from "./types";
@@ -18,6 +19,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logoutMutation = trpc.biosfere.auth.logout.useMutation();
   const utils = trpc.useUtils();
   useEffect(() => {
+    if (!token) setAccountLanguage(null);
+    else if (me.data) setAccountLanguage(me.data.language);
+  }, [token, me.data?.language]);
+  useEffect(() => {
     if (token && me.isSuccess && me.data === null) {
       localStorage.removeItem("biosfere_session"); setToken(null); queryClient.clear();
     }
@@ -36,13 +41,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const result = await loginMutation.mutateAsync({ identifier, password });
       await queryClient.cancelQueries(); queryClient.clear();
       localStorage.setItem("biosfere_session", result.token);
-      utils.biosfere.auth.me.setData(undefined, result.user); setToken(result.token);
+      utils.biosfere.auth.me.setData(undefined, result.user); setToken(result.token); setAccountLanguage(result.user.language);
     },
     register: async (input) => {
       const result = await registerMutation.mutateAsync(input);
       await queryClient.cancelQueries(); queryClient.clear();
       localStorage.setItem("biosfere_session", result.token);
-      utils.biosfere.auth.me.setData(undefined, result.user); setToken(result.token);
+      utils.biosfere.auth.me.setData(undefined, result.user); setToken(result.token); setAccountLanguage(result.user.language);
     },
     logout: async () => { try { if (token) await logoutMutation.mutateAsync(); } finally {
       localStorage.removeItem("biosfere_session"); setToken(null);

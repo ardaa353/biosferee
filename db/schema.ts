@@ -1,6 +1,16 @@
 import {
-  mysqlTable, mysqlEnum, serial, varchar, text, timestamp, bigint,
-  double, int, index, uniqueIndex, json,
+  mysqlTable,
+  mysqlEnum,
+  serial,
+  varchar,
+  text,
+  timestamp,
+  bigint,
+  double,
+  int,
+  index,
+  uniqueIndex,
+  json,
 } from "drizzle-orm/mysql-core";
 
 export const users = mysqlTable("users", {
@@ -13,62 +23,85 @@ export const users = mysqlTable("users", {
   passwordHash: varchar("password_hash", { length: 255 }).notNull(),
   bio: text("bio").notNull(),
   avatarKey: varchar("avatar_key", { length: 512 }),
-  role: mysqlEnum("role", ["user", "moderator", "admin"]).notNull().default("user"),
+  role: mysqlEnum("role", ["user", "moderator", "admin"])
+    .notNull()
+    .default("user"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export const sessions = mysqlTable("sessions", {
-  id: serial("id").primaryKey(),
-  userId: bigint("user_id", { mode: "number", unsigned: true }).notNull(),
-  token: varchar("token", { length: 128 }).notNull().unique(),
-  expiresAt: timestamp("expires_at").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (t) => ({ userIdx: index("session_user_idx").on(t.userId) }));
+export const sessions = mysqlTable(
+  "sessions",
+  {
+    id: serial("id").primaryKey(),
+    userId: bigint("user_id", { mode: "number", unsigned: true }).notNull(),
+    token: varchar("token", { length: 128 }).notNull().unique(),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => ({ userIdx: index("session_user_idx").on(t.userId) }),
+);
 
-export const posts = mysqlTable("posts", {
-  id: serial("id").primaryKey(),
-  authorId: bigint("author_id", { mode: "number", unsigned: true }),
-  description: text("description").notNull(),
-  status: mysqlEnum("status", ["unknown", "verified", "removed"]).notNull().default("verified"),
-  kingdom: varchar("kingdom", { length: 100 }),
-  phylum: varchar("phylum", { length: 150 }),
-  className: varchar("class_name", { length: 150 }),
-  orderName: varchar("order_name", { length: 150 }),
-  family: varchar("family", { length: 150 }),
-  genus: varchar("genus", { length: 150 }),
-  species: varchar("species", { length: 200 }),
-  commonName: varchar("common_name", { length: 200 }),
-  city: varchar("city", { length: 100 }).notNull(),
-  locality: varchar("locality", { length: 200 }).notNull(),
-  lat: double("lat").notNull(),
-  lng: double("lng").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
-}, (t) => ({
-  authorIdx: index("post_author_idx").on(t.authorId),
-  cityIdx: index("post_city_idx").on(t.city),
-  speciesIdx: index("post_species_idx").on(t.species),
-}));
+export const posts = mysqlTable(
+  "posts",
+  {
+    id: serial("id").primaryKey(),
+    authorId: bigint("author_id", { mode: "number", unsigned: true }),
+    description: text("description").notNull(),
+    status: mysqlEnum("status", ["unknown", "verified", "removed"])
+      .notNull()
+      .default("verified"),
+    kingdom: varchar("kingdom", { length: 100 }),
+    phylum: varchar("phylum", { length: 150 }),
+    className: varchar("class_name", { length: 150 }),
+    orderName: varchar("order_name", { length: 150 }),
+    family: varchar("family", { length: 150 }),
+    genus: varchar("genus", { length: 150 }),
+    species: varchar("species", { length: 200 }),
+    commonName: varchar("common_name", { length: 200 }),
+    city: varchar("city", { length: 100 }).notNull(),
+    locality: varchar("locality", { length: 200 }).notNull(),
+    lat: double("lat").notNull(),
+    lng: double("lng").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
+  },
+  (t) => ({
+    authorIdx: index("post_author_idx").on(t.authorId),
+    cityIdx: index("post_city_idx").on(t.city),
+    speciesIdx: index("post_species_idx").on(t.species),
+  }),
+);
 
-export const postImages = mysqlTable("post_images", {
-  id: serial("id").primaryKey(),
-  postId: bigint("post_id", { mode: "number", unsigned: true }).notNull(),
-  fileKey: varchar("file_key", { length: 512 }).notNull(),
-  sortOrder: int("sort_order").notNull().default(0),
-}, (t) => ({ postIdx: index("image_post_idx").on(t.postId) }));
+export const postImages = mysqlTable(
+  "post_images",
+  {
+    id: serial("id").primaryKey(),
+    postId: bigint("post_id", { mode: "number", unsigned: true }).notNull(),
+    fileKey: varchar("file_key", { length: 512 }).notNull(),
+    sortOrder: int("sort_order").notNull().default(0),
+  },
+  (t) => ({ postIdx: index("image_post_idx").on(t.postId) }),
+);
 
-export const cloudImageDeletions = mysqlTable("cloud_image_deletions", {
-  id: varchar("id", { length: 64 }).primaryKey(),
-  fileKey: varchar("file_key", { length: 512 }).notNull(),
-  attempts: int("attempts", { unsigned: true }).notNull().default(0),
-  nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),
-  lastError: varchar("last_error", { length: 500 }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-}, t => ({ dueIdx: index("cloud_deletion_due_idx").on(t.nextAttemptAt) }));
+export const cloudImageDeletions = mysqlTable(
+  "cloud_image_deletions",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    fileKey: varchar("file_key", { length: 512 }).notNull(),
+    attempts: int("attempts", { unsigned: true }).notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),
+    lastError: varchar("last_error", { length: 500 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => ({ dueIdx: index("cloud_deletion_due_idx").on(t.nextAttemptAt) }),
+);
 
 export const datasetImportJobs = mysqlTable("dataset_import_jobs", {
   id: varchar("id", { length: 36 }).primaryKey(),
-  importerId: bigint("importer_id", { mode: "number", unsigned: true }).notNull(),
+  importerId: bigint("importer_id", {
+    mode: "number",
+    unsigned: true,
+  }).notNull(),
   authorId: bigint("author_id", { mode: "number", unsigned: true }),
   archiveId: varchar("archive_id", { length: 128 }).notNull(),
   total: int("total", { unsigned: true }).notNull(),
@@ -76,32 +109,48 @@ export const datasetImportJobs = mysqlTable("dataset_import_jobs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
-export const datasetImportEntries = mysqlTable("dataset_import_entries", {
-  id: varchar("id", { length: 64 }).primaryKey(),
-  jobId: varchar("job_id", { length: 36 }).notNull(),
-  sourceId: varchar("source_id", { length: 128 }).notNull(),
-  postId: bigint("post_id", { mode: "number", unsigned: true }),
-  record: json("record").$type<import("../contracts/dataset").PortablePost>().notNull(),
-  publicIds: json("public_ids").$type<string[]>().notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-}, t => ({ jobIdx: index("dataset_entry_job_idx").on(t.jobId) }));
+export const datasetImportEntries = mysqlTable(
+  "dataset_import_entries",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(),
+    jobId: varchar("job_id", { length: 36 }).notNull(),
+    sourceId: varchar("source_id", { length: 128 }).notNull(),
+    postId: bigint("post_id", { mode: "number", unsigned: true }),
+    record: json("record")
+      .$type<import("../contracts/dataset").PortablePost>()
+      .notNull(),
+    publicIds: json("public_ids").$type<string[]>().notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => ({ jobIdx: index("dataset_entry_job_idx").on(t.jobId) }),
+);
 export const importedObservationData = mysqlTable("imported_observation_data", {
   postId: bigint("post_id", { mode: "number", unsigned: true }).primaryKey(),
   source: json("source").$type<Record<string, unknown>>().notNull(),
 });
 
-export const likes = mysqlTable("likes", {
-  id: serial("id").primaryKey(),
-  postId: bigint("post_id", { mode: "number", unsigned: true }).notNull(),
-  userId: bigint("user_id", { mode: "number", unsigned: true }).notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-}, (t) => ({ uniqueLike: uniqueIndex("unique_like").on(t.postId, t.userId) }));
+export const likes = mysqlTable(
+  "likes",
+  {
+    id: serial("id").primaryKey(),
+    postId: bigint("post_id", { mode: "number", unsigned: true }).notNull(),
+    userId: bigint("user_id", { mode: "number", unsigned: true }).notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => ({ uniqueLike: uniqueIndex("unique_like").on(t.postId, t.userId) }),
+);
 
-export const collaborators = mysqlTable("collaborators", {
-  id: serial("id").primaryKey(),
-  postId: bigint("post_id", { mode: "number", unsigned: true }).notNull(),
-  userId: bigint("user_id", { mode: "number", unsigned: true }).notNull(),
-}, (t) => ({ uniqueCollab: uniqueIndex("unique_collab").on(t.postId, t.userId) }));
+export const collaborators = mysqlTable(
+  "collaborators",
+  {
+    id: serial("id").primaryKey(),
+    postId: bigint("post_id", { mode: "number", unsigned: true }).notNull(),
+    userId: bigint("user_id", { mode: "number", unsigned: true }).notNull(),
+  },
+  (t) => ({
+    uniqueCollab: uniqueIndex("unique_collab").on(t.postId, t.userId),
+  }),
+);
 
 export const suggestions = mysqlTable("suggestions", {
   id: serial("id").primaryKey(),
@@ -116,19 +165,44 @@ export const suggestions = mysqlTable("suggestions", {
   species: varchar("species", { length: 200 }).notNull(),
   commonName: varchar("common_name", { length: 200 }).notNull(),
   note: text("note"),
-  status: mysqlEnum("status", ["pending", "accepted", "rejected"]).notNull().default("pending"),
+  status: mysqlEnum("status", ["pending", "accepted", "rejected"])
+    .notNull()
+    .default("pending"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 export const reports = mysqlTable("reports", {
   id: serial("id").primaryKey(),
   postId: bigint("post_id", { mode: "number", unsigned: true }).notNull(),
-  reporterId: bigint("reporter_id", { mode: "number", unsigned: true }).notNull(),
-  reason: mysqlEnum("reason", ["misleading", "wrong_species", "inappropriate", "other"]).notNull(),
+  reporterId: bigint("reporter_id", {
+    mode: "number",
+    unsigned: true,
+  }).notNull(),
+  reason: mysqlEnum("reason", [
+    "misleading",
+    "wrong_species",
+    "inappropriate",
+    "other",
+  ]).notNull(),
   details: text("details").notNull(),
-  status: mysqlEnum("status", ["pending", "resolved", "dismissed"]).notNull().default("pending"),
+  status: mysqlEnum("status", ["pending", "resolved", "dismissed"])
+    .notNull()
+    .default("pending"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 export type User = typeof users.$inferSelect;
 export type Post = typeof posts.$inferSelect;
+
+// Separate tables keep existing user/post schemas compatible during a rolling deployment.
+export const userPreferences = mysqlTable("user_preferences", {
+  userId: bigint("user_id", { mode: "number", unsigned: true }).primaryKey(),
+  language: varchar("language", { length: 2 }),
+});
+export const textTranslations = mysqlTable("text_translations", {
+  contentHash: varchar("content_hash", { length: 64 }).primaryKey(),
+  translatedText: text("translated_text").notNull(),
+  sourceLanguage: varchar("source_language", { length: 12 }).notNull(),
+  provider: varchar("provider", { length: 40 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});

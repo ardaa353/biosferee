@@ -1,10 +1,10 @@
+import { t as trText } from "@/lib/i18n";
 import { Suspense } from "react";
 import { Link, Outlet, useLocation } from "react-router";
 import { useAuth } from "@/lib/auth";
 import AppShell from "./AppShell";
 import ErrorBoundary from "./ErrorBoundary";
 import { Loading, Logo, buttonClass, secondaryButton } from "./BioUI";
-
 export default function PublicPostShell() {
   const { user } = useAuth();
   const location = useLocation();
@@ -13,10 +13,10 @@ export default function PublicPostShell() {
   const authentication = (
     <>
       <Link to={"/giris" + next} className={secondaryButton}>
-        Giriş yap
+        {trText("Giriş yap")}
       </Link>
       <Link to={"/kayit" + next} className={buttonClass}>
-        Kayıt ol
+        {trText("Kayıt ol")}
       </Link>
     </>
   );
@@ -25,7 +25,7 @@ export default function PublicPostShell() {
       <header className="sticky top-0 z-30 border-b border-[#09352e]/10 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-4">
           <Logo />
-          <nav aria-label="Hesap" className="flex gap-2">
+          <nav aria-label={trText("Hesap")} className="flex gap-2">
             {authentication}
           </nav>
         </div>
@@ -38,7 +38,7 @@ export default function PublicPostShell() {
         </ErrorBoundary>
       </main>
       <footer className="border-t border-[#09352e]/10 px-4 py-8 text-center text-sm text-[#53675f]">
-        BioSfere · Canlı gözlem ağı
+        {trText("BioSfere · Canlı gözlem ağı")}
       </footer>
     </div>
   );

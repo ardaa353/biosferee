@@ -1,3 +1,5 @@
+import { t as trText } from "@/lib/i18n";
+import { useLocale } from "@/lib/i18n";
 export default function StartupScreen({
   failed = false,
   retry,
@@ -5,6 +7,7 @@ export default function StartupScreen({
   failed?: boolean;
   retry?: () => void;
 }) {
+  useLocale();
   return (
     <div className="biosfere-startup" role="status" aria-live="polite">
       <div className="biosfere-startup-brand" aria-hidden="true">
@@ -29,7 +32,9 @@ export default function StartupScreen({
         </span>
       </div>
       <p className="biosfere-startup-label">
-        {failed ? "Bağlantı henüz kurulamadı." : "BioSfere açılıyor…"}
+        {failed
+          ? trText("Bağlantı henüz kurulamadı.")
+          : trText("BioSfere açılıyor…")}
       </p>
       {failed && (
         <button
@@ -37,7 +42,7 @@ export default function StartupScreen({
           className="biosfere-startup-retry"
           onClick={retry}
         >
-          Yeniden dene
+          {trText("Yeniden dene")}
         </button>
       )}
     </div>

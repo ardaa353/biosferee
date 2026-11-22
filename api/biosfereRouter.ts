@@ -1,3 +1,5 @@
+import { translationRouter } from "./translationRouter";
+import { getUserLanguage, saveUserLanguage, prepareLocalization } from "./lib/localization";
 import { prepareImageCleanup, queueCloudImages, kickCloudImageCleanup } from "./lib/imageCleanup";
 import { rankFeed } from "./lib/feedRanking";
 import { z } from "zod";
@@ -17,6 +19,7 @@ import {
 import { getDb } from "./queries/connection";
 import {
   users,
+  userPreferences,
   sessions,
   posts,
   postImages,
@@ -217,6 +220,7 @@ async function recommendedFeed(viewerId: number, seed: string, kingdom: string |
 // ---------------------------------------------------------
 
 export const biosfereRouter = createRouter({
+  translations: translationRouter,
   videoUpload: authedQuery.mutation(async ({ctx}) => {
     const publicId = "biosfere/posts/" + ctx.user.id + "/" + randomUUID();
     const upload = signedImageUpload(publicId, "video");
@@ -225,8 +229,8 @@ export const biosfereRouter = createRouter({
     await getDb().transaction(tx => queueCloudImages(tx, [cloudAssetUrl(publicId, "video")], new Date(Date.now() + 2 * 60 * 60_000)));
     return upload;
   }),
-  taxonProfiles: authedQuery.input(z.object({taxa: z.array(z.object({species: z.string().trim().min(2).max(200), kingdom: z.string().trim().max(100)})).min(1).max(5)}))
-    .query(({input}) => Promise.all(input.taxa.map(taxon => speciesProfile(taxon.species, taxon.kingdom)))),
+  taxonProfiles: publicQuery.input(z.object({language: z.enum(["tr", "en"]).default("tr"), taxa: z.array(z.object({species: z.string().trim().min(2).max(200), kingdom: z.string().trim().max(100)})).min(1).max(5)}))
+    .query(({input}) => Promise.all(input.taxa.map(taxon => speciesProfile(taxon.species, taxon.kingdom, input.language)))),
   nearbySpecies: authedQuery.input(z.object({
     lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180),
     species: z.array(z.string().min(2).max(200)).min(1).max(5)
@@ -245,7 +249,7 @@ export const biosfereRouter = createRouter({
   // KİMLİK DOĞRULAMA
   // -------------------------------------------------------
   auth: createRouter({
-    me: publicQuery.query(({ ctx }) => (ctx.user ? safeUser(ctx.user) : null)),
+    me: publicQuery.query(async ({ ctx }) => (ctx.user ? {...safeUser(ctx.user), language: await getUserLanguage(ctx.user.id)} : null)),
 
     register: publicQuery
       .input(
@@ -282,7 +286,7 @@ export const biosfereRouter = createRouter({
 
         const [user] = await db.select().from(users).where(eq(users.id, id));
 
-        return { token: await createSession(id), user: safeUser(user) };
+        return { token: await createSession(id), user: {...safeUser(user), language: await getUserLanguage(user.id)} };
       }),
 
     login: publicQuery
@@ -299,7 +303,7 @@ export const biosfereRouter = createRouter({
           throw new TRPCError({ code: "UNAUTHORIZED", message: "Kullanıcı adı, e-posta veya şifre hatalı." });
         }
 
-        return { token: await createSession(found.id), user: safeUser(found) };
+        return { token: await createSession(found.id), user: {...safeUser(found), language: await getUserLanguage(found.id)} };
       }),
 
     logout: authedQuery.mutation(async ({ ctx }) => {
@@ -313,6 +317,7 @@ export const biosfereRouter = createRouter({
   // KULLANICILAR
   // -------------------------------------------------------
   users: createRouter({
+    setLanguage: authedQuery.input(z.object({language: z.enum(["tr", "en"])})).mutation(async ({ctx, input}) => {await saveUserLanguage(ctx.user.id, input.language); return {language: input.language};}),
     list: authedQuery.query(async () => enrichUsers(await getDb().select().from(users).orderBy(users.username))),
 
     updateProfile: authedQuery
@@ -385,6 +390,7 @@ export const biosfereRouter = createRouter({
         }
 
         await prepareImageCleanup();
+        await prepareLocalization();
         await db.transaction(async tx => {
           const [targetUser] = await tx.select().from(users).where(eq(users.id, input.userId)).limit(1).for("update");
           if (!targetUser) throw new TRPCError({ code: "NOT_FOUND", message: "Kullanıcı bulunamadı." });
@@ -408,6 +414,7 @@ export const biosfereRouter = createRouter({
             await tx.delete(posts).where(eq(posts.authorId, targetUser.id));
           }
 
+          await tx.delete(userPreferences).where(eq(userPreferences.userId, targetUser.id));
           await tx.delete(users).where(eq(users.id, targetUser.id));
         });
         kickCloudImageCleanup();
@@ -592,6 +599,7 @@ export const biosfereRouter = createRouter({
         const db = getDb();
 
         await prepareImageCleanup();
+        await prepareLocalization();
         await db.transaction(async tx => {
           const [post] = await tx.select().from(posts).where(eq(posts.id, input.postId)).limit(1).for("update");
           if (!post) throw new TRPCError({ code: "NOT_FOUND", message: "Gönderi bulunamadı." });

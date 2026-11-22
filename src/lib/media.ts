@@ -1,3 +1,4 @@
+import { t as trText } from "@/lib/i18n";
 import { isVideoFile, mediaContentType } from "@contracts/media";
 import { photoAccept, preparePhoto } from "./photos";
 export { isVideoFile, isVideoUrl } from "@contracts/media";
@@ -5,7 +6,7 @@ export const mediaAccept =
   photoAccept + ",video/*,.mp4,.mov,.m4v,.webm,.mkv,.avi,.3gp";
 export function prepareMedia(file: File) {
   if (!isVideoFile(file)) return preparePhoto(file);
-  if (!file.size) throw new Error("Video dosyası boş.");
+  if (!file.size) throw new Error(trText("Video dosyası boş."));
   return Promise.resolve(
     file.type
       ? file
@@ -36,15 +37,19 @@ function mediaEvent(
       cleanup();
       reject(
         new Error(
-          "Bu videonun görüntüsü tarayıcıda okunamadı. MP4/H.264 biçimini deneyebilirsin.",
+          trText(
+            "Bu videonun görüntüsü tarayıcıda okunamadı. MP4/H.264 biçimini deneyebilirsin.",
+          ),
         ),
       );
     };
     const stopped = () => {
       cleanup();
-      reject(signal.reason || new DOMException("İptal edildi", "AbortError"));
+      reject(
+        signal.reason || new DOMException(trText("İptal edildi"), "AbortError"),
+      );
     };
-    const timer = setTimeout(failed, 20_000);
+    const timer = setTimeout(failed, 20000);
     video.addEventListener(name, ready, { once: true });
     video.addEventListener("error", failed, { once: true });
     signal.addEventListener("abort", stopped, { once: true });
@@ -74,7 +79,7 @@ export async function extractVideoFrames(
       !video.videoWidth ||
       !video.videoHeight
     )
-      throw new Error("Videonun süresi veya görüntüsü okunamadı.");
+      throw new Error(trText("Videonun süresi veya görüntüsü okunamadı."));
     const canvas = document.createElement("canvas");
     const scale = Math.min(
       1,
@@ -83,7 +88,7 @@ export async function extractVideoFrames(
     canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
     canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
     const context = canvas.getContext("2d");
-    if (!context) throw new Error("Video kareleri hazırlanamadı.");
+    if (!context) throw new Error(trText("Video kareleri hazırlanamadı."));
     const result: File[] = [];
     for (const fraction of [0.08, 0.35, 0.65, 0.9]) {
       signal.throwIfAborted();
@@ -98,7 +103,7 @@ export async function extractVideoFrames(
         canvas.toBlob(resolve, "image/jpeg", 0.88),
       );
       signal.throwIfAborted();
-      if (!blob) throw new Error("Video karesi oluşturulamadı.");
+      if (!blob) throw new Error(trText("Video karesi oluşturulamadı."));
       result.push(
         new File([blob], file.name + "-kare-" + (result.length + 1) + ".jpg", {
           type: "image/jpeg",
@@ -122,7 +127,9 @@ export async function identificationFrames(
   for (const file of files) {
     if (isVideoFile(file)) {
       progress(
-        "Videonun farklı anlarından tür analizi için kareler hazırlanıyor…",
+        trText(
+          "Videonun farklı anlarından tür analizi için kareler hazırlanıyor…",
+        ),
       );
       result.push(...(await extractVideoFrames(file, signal)));
     } else result.push(file);
@@ -131,16 +138,21 @@ export async function identificationFrames(
 }
 export async function uploadVideo(
   file: File,
-  signed: { url: string; fields: Record<string, string> },
+  signed: {
+    url: string;
+    fields: Record<string, string>;
+  },
   progress: (message: string) => void,
   signal?: AbortSignal,
 ) {
-  const chunkSize = 6_000_000,
+  const chunkSize = 6000000,
     uploadId = crypto.randomUUID();
   let result: {
     secure_url?: string;
     height?: number;
-    error?: { message?: string };
+    error?: {
+      message?: string;
+    };
   } = {};
   for (let start = 0; start < file.size; start += chunkSize) {
     signal?.throwIfAborted();
@@ -149,8 +161,10 @@ export async function uploadVideo(
     for (const [key, value] of Object.entries(signed.fields))
       body.append(key, value);
     body.append("file", file.slice(start, end), file.name);
-    progress("Video yükleniyor · %" + Math.round((start / file.size) * 100));
-    const timeout = AbortSignal.timeout(120_000);
+    progress(
+      trText("Video yükleniyor · %") + Math.round((start / file.size) * 100),
+    );
+    const timeout = AbortSignal.timeout(120000);
     const response = await fetch(signed.url, {
       method: "POST",
       body,
@@ -164,12 +178,12 @@ export async function uploadVideo(
     if (!response.ok)
       throw new Error(
         result.error?.message ||
-          "Video yüklenemedi. Bağlantını kontrol edip yeniden dene.",
+          trText("Video yüklenemedi. Bağlantını kontrol edip yeniden dene."),
       );
   }
   if (!result.secure_url || !result.height)
     throw new Error(
-      "Video yüklemesi tamamlanamadı veya dosyada görüntü bulunmuyor.",
+      trText("Video yüklemesi tamamlanamadı veya dosyada görüntü bulunmuyor."),
     );
   return {
     name: file.name,

@@ -1,131 +1,301 @@
+import TranslatedContent from "@/components/TranslatedContent";
+import CommonName from "@/components/CommonName";
+import { t as trText } from "@/lib/i18n";
 import { lazy, Suspense } from "react";
 const DataTransferPanel = lazy(() => import("@/components/DataTransferPanel"));
-const ObservationWorkshop = lazy(() => import("@/components/ObservationWorkshop"));
+const ObservationWorkshop = lazy(
+  () => import("@/components/ObservationWorkshop"),
+);
 import { useState } from "react";
 import { Link } from "react-router";
 import { Check, ShieldCheck, X, Trash2 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import { errorMessage } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
-import { Avatar, Loading, QueryError, PageHeading, buttonClass, inputClass, secondaryButton } from "@/components/BioUI";
-
+import {
+  Avatar,
+  Loading,
+  QueryError,
+  PageHeading,
+  buttonClass,
+  inputClass,
+  secondaryButton,
+} from "@/components/BioUI";
 export default function AdminPage() {
-  const { user } = useAuth(); 
-  const [tab, setTab] = useState<"reports" | "suggestions" | "users" | "data" | "workshop">(() => new URLSearchParams(window.location.search).get("sekme") === "atolye" ? "workshop" : "reports");
+  const { user } = useAuth();
+  const [tab, setTab] = useState<
+    "reports" | "suggestions" | "users" | "data" | "workshop"
+  >(() =>
+    new URLSearchParams(window.location.search).get("sekme") === "atolye"
+      ? "workshop"
+      : "reports",
+  );
   const [workshopOpened, setWorkshopOpened] = useState(tab === "workshop");
   const [userSearch, setUserSearch] = useState("");
-
   const utils = trpc.useUtils();
   const canModerate = !!user && user.role !== "user";
-  const users = trpc.biosfere.users.list.useQuery(undefined, {enabled: canModerate && tab === "users"}); 
-  const overview = trpc.biosfere.moderation.overview.useQuery(undefined, {enabled: canModerate && (tab === "reports" || tab === "suggestions")});
-  
-  const role = trpc.biosfere.users.setRole.useMutation({ onSuccess: () => {void users.refetch(); void utils.biosfere.posts.invalidate();} }); 
-  const resolve = trpc.biosfere.moderation.resolveReport.useMutation({ onSuccess: () => {void overview.refetch(); void utils.biosfere.posts.invalidate();} }); 
-  const accept = trpc.biosfere.identification.accept.useMutation({ onSuccess: () => {void overview.refetch(); void utils.biosfere.posts.invalidate();} });
-  
-  const deleteUser = trpc.biosfere.users.delete.useMutation({ 
-    onSuccess: () => {void users.refetch(); void utils.biosfere.posts.invalidate();} 
+  const users = trpc.biosfere.users.list.useQuery(undefined, {
+    enabled: canModerate && tab === "users",
   });
-  
-  if (!canModerate) return <QueryError retry={() => window.location.assign("/akis")} text="Bu sayfayı yalnızca yöneticiler ve moderatörler görüntüleyebilir." />;
-  
+  const overview = trpc.biosfere.moderation.overview.useQuery(undefined, {
+    enabled: canModerate && (tab === "reports" || tab === "suggestions"),
+  });
+  const role = trpc.biosfere.users.setRole.useMutation({
+    onSuccess: () => {
+      void users.refetch();
+      void utils.biosfere.posts.invalidate();
+    },
+  });
+  const resolve = trpc.biosfere.moderation.resolveReport.useMutation({
+    onSuccess: () => {
+      void overview.refetch();
+      void utils.biosfere.posts.invalidate();
+    },
+  });
+  const accept = trpc.biosfere.identification.accept.useMutation({
+    onSuccess: () => {
+      void overview.refetch();
+      void utils.biosfere.posts.invalidate();
+    },
+  });
+  const deleteUser = trpc.biosfere.users.delete.useMutation({
+    onSuccess: () => {
+      void users.refetch();
+      void utils.biosfere.posts.invalidate();
+    },
+  });
+  if (!canModerate)
+    return (
+      <QueryError
+        retry={() => window.location.assign("/akis")}
+        text={trText(
+          "Bu sayfayı yalnızca yöneticiler ve moderatörler görüntüleyebilir.",
+        )}
+      />
+    );
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-8 md:py-8">
-      <PageHeading 
-        eyebrow="Moderasyon ve topluluk güveni" 
-        title="Yönetim merkezi" 
-        description="Yanıltıcı içerik raporlarını inceleyin, bilinmeyen tür önerilerini karşılaştırın ve ekip yetkilerini düzenleyin." 
+      <PageHeading
+        eyebrow={trText("Moderasyon ve topluluk güveni")}
+        title={trText("Yönetim merkezi")}
+        description={trText(
+          "Yanıltıcı içerik raporlarını inceleyin, bilinmeyen tür önerilerini karşılaştırın ve ekip yetkilerini düzenleyin.",
+        )}
       />
-      
+
       <div className="mb-7 flex flex-wrap gap-2">
-        {(["reports", "suggestions", "users", ...(user.role === "admin" ? ["workshop" as const, "data" as const] : [])] as const).map((t) => (
-          <button 
-            key={t} 
-            onClick={() => { setTab(t); if (t === "workshop") setWorkshopOpened(true); }}
+        {(
+          [
+            "reports",
+            "suggestions",
+            "users",
+            ...(user.role === "admin"
+              ? ["workshop" as const, "data" as const]
+              : []),
+          ] as const
+        ).map((t) => (
+          <button
+            key={t}
+            onClick={() => {
+              setTab(t);
+              if (t === "workshop") setWorkshopOpened(true);
+            }}
             className={`min-h-11 rounded-full border px-4 text-sm font-semibold transition-colors ${tab === t ? "border-[#09352e] bg-[#09352e] text-white" : "border-[#09352e]/20 hover:bg-[#09352e]/5"}`}
           >
-            {t === "reports" 
-              ? `Raporlar (${overview.data?.reports.filter((r) => r.status === "pending").length ?? 0})` 
-              : t === "suggestions" 
-              ? `Tür önerileri (${overview.data?.suggestions.length ?? 0})` 
-              : t === "workshop" ? "Gözlem veri atölyesi" : t === "data" ? "Veri aktarımı ve bulut" : "Kullanıcı yetkileri"}
+            {t === "reports"
+              ? `Raporlar (${overview.data?.reports.filter((r) => r.status === "pending").length ?? 0})`
+              : t === "suggestions"
+                ? trText("Tür önerileri ({0})", [
+                    overview.data?.suggestions.length ?? 0,
+                  ])
+                : t === "workshop"
+                  ? trText("Gözlem veri atölyesi")
+                  : t === "data"
+                    ? trText("Veri aktarımı ve bulut")
+                    : trText("Kullanıcı yetkileri")}
           </button>
         ))}
       </div>
 
-      {(role.error || resolve.error || accept.error || deleteUser.error) && <p role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">{errorMessage(role.error || resolve.error || accept.error || deleteUser.error)}</p>}
-      {overview.isError && (tab === "reports" || tab === "suggestions") && <QueryError retry={() => overview.refetch()} />}
-      {users.isError && tab === "users" && <QueryError retry={() => users.refetch()} />}
-      {tab === "data" && user.role === "admin" && <Suspense fallback={<Loading />}><DataTransferPanel /></Suspense>}
-      {workshopOpened && user.role === "admin" && <div hidden={tab !== "workshop"}><Suspense fallback={<Loading />}><ObservationWorkshop /></Suspense></div>}
+      {(role.error || resolve.error || accept.error || deleteUser.error) && (
+        <p
+          role="alert"
+          className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900"
+        >
+          {errorMessage(
+            role.error || resolve.error || accept.error || deleteUser.error,
+          )}
+        </p>
+      )}
+      {overview.isError && (tab === "reports" || tab === "suggestions") && (
+        <QueryError retry={() => overview.refetch()} />
+      )}
+      {users.isError && tab === "users" && (
+        <QueryError retry={() => users.refetch()} />
+      )}
+      {tab === "data" && user.role === "admin" && (
+        <Suspense fallback={<Loading />}>
+          <DataTransferPanel />
+        </Suspense>
+      )}
+      {workshopOpened && user.role === "admin" && (
+        <div hidden={tab !== "workshop"}>
+          <Suspense fallback={<Loading />}>
+            <ObservationWorkshop />
+          </Suspense>
+        </div>
+      )}
       {overview.isLoading && tab !== "data" && tab !== "workshop" ? (
         <Loading />
-      ) : tab === "reports" && (
-        <section className="space-y-4">
-          {overview.data?.reports.length ? overview.data.reports.map((r) => (
-            <article key={r.id} className="rounded-xl border border-[#09352e]/15 bg-[#fdfefb] p-4 sm:p-5 shadow-sm">
-              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                <div className="flex-1">
-                  <span className={`font-mono text-[10px] uppercase font-bold tracking-wider ${r.status === "pending" ? "text-[#8d302a]" : "text-[#71807e]"}`}>
-                    {r.status === "pending" ? "İnceleme bekliyor" : r.status === "resolved" ? "Çözüldü" : "Reddedildi"}
-                  </span>
-                  <h2 className="mt-1 font-serif text-xl sm:text-2xl text-[#09352e]">
-                    {r.reason === "wrong_species" ? "Yanlış tür bilgisi" : r.reason === "misleading" ? "Yanıltıcı içerik" : r.reason === "inappropriate" ? "Uygunsuz içerik" : "Diğer rapor"}
-                  </h2>
-                  <p className="mt-3 max-w-3xl text-sm leading-6 text-[#50665d] bg-[#f7f7f7] p-3 rounded-lg border">
-                    {r.details}
-                  </p>
-                  <p className="mt-3 font-mono text-[11px] text-[#71807e]">
-                    Raporlayan @{r.reporter.username} · <Link className="text-[#007f24] font-semibold hover:underline" to={`/gonderi/${r.post.id}`}>Gönderi #{r.post.id} Görüntüle</Link>
-                  </p>
-                </div>
-                
-                {r.status === "pending" && (
-                  <div className="flex flex-row sm:flex-col flex-wrap sm:flex-nowrap gap-2 w-full sm:w-auto">
-                    <button onClick={() => resolve.mutate({ reportId: r.id, action: "resolve" })} className={`${secondaryButton} flex-1 sm:flex-none justify-center`}>
-                      <Check size={15} /> Çözüldü
-                    </button>
-                    <button onClick={() => resolve.mutate({ reportId: r.id, action: "remove" })} className={`${buttonClass} flex-1 sm:flex-none justify-center bg-[#a63f36] hover:bg-[#8d302a] text-white border-none`}>
-                      Kaldır
-                    </button>
-                    <button onClick={() => resolve.mutate({ reportId: r.id, action: "dismiss" })} className={`${secondaryButton} flex-1 sm:flex-none justify-center opacity-70`}>
-                      <X size={15} /> Reddet
-                    </button>
+      ) : (
+        tab === "reports" && (
+          <section className="space-y-4">
+            {overview.data?.reports.length ? (
+              overview.data.reports.map((r) => (
+                <article
+                  key={r.id}
+                  className="rounded-xl border border-[#09352e]/15 bg-[#fdfefb] p-4 sm:p-5 shadow-sm"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <span
+                        className={`font-mono text-[10px] uppercase font-bold tracking-wider ${r.status === "pending" ? "text-[#8d302a]" : "text-[#71807e]"}`}
+                      >
+                        {r.status === "pending"
+                          ? trText("İnceleme bekliyor")
+                          : r.status === "resolved"
+                            ? trText("Çözüldü")
+                            : "Reddedildi"}
+                      </span>
+                      <h2 className="mt-1 font-serif text-xl sm:text-2xl text-[#09352e]">
+                        {r.reason === "wrong_species"
+                          ? trText("Yanlış tür bilgisi")
+                          : r.reason === "misleading"
+                            ? trText("Yanıltıcı içerik")
+                            : r.reason === "inappropriate"
+                              ? trText("Uygunsuz içerik")
+                              : trText("Diğer rapor")}
+                      </h2>
+                      <TranslatedContent
+                        kind="report"
+                        id={r.id}
+                        text={r.details}
+                        className="mt-3 max-w-3xl text-sm leading-6 text-[#50665d] bg-[#f7f7f7] p-3 rounded-lg border"
+                      />
+                      <p className="mt-3 font-mono text-[11px] text-[#71807e]">
+                        {trText("Raporlayan @")}
+                        {r.reporter.username} ·{" "}
+                        <Link
+                          className="text-[#007f24] font-semibold hover:underline"
+                          to={`/gonderi/${r.post.id}`}
+                        >
+                          {trText("Gönderi #")}
+                          {r.post.id}
+                          {trText(" Görüntüle")}
+                        </Link>
+                      </p>
+                    </div>
+
+                    {r.status === "pending" && (
+                      <div className="flex flex-row sm:flex-col flex-wrap sm:flex-nowrap gap-2 w-full sm:w-auto">
+                        <button
+                          onClick={() =>
+                            resolve.mutate({
+                              reportId: r.id,
+                              action: "resolve",
+                            })
+                          }
+                          className={`${secondaryButton} flex-1 sm:flex-none justify-center`}
+                        >
+                          <Check size={15} />
+                          {trText(" Çözüldü")}
+                        </button>
+                        <button
+                          onClick={() =>
+                            resolve.mutate({ reportId: r.id, action: "remove" })
+                          }
+                          className={`${buttonClass} flex-1 sm:flex-none justify-center bg-[#a63f36] hover:bg-[#8d302a] text-white border-none`}
+                        >
+                          {trText("Kaldır")}
+                        </button>
+                        <button
+                          onClick={() =>
+                            resolve.mutate({
+                              reportId: r.id,
+                              action: "dismiss",
+                            })
+                          }
+                          className={`${secondaryButton} flex-1 sm:flex-none justify-center opacity-70`}
+                        >
+                          <X size={15} />
+                          {trText(" Reddet")}
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            </article>
-          )) : (
-            <p className="border-y border-[#09352e]/15 py-12 text-center text-sm text-[#71807e] bg-white rounded-xl">Henüz içerik raporu bulunmuyor.</p>
-          )}
-        </section>
+                </article>
+              ))
+            ) : (
+              <p className="border-y border-[#09352e]/15 py-12 text-center text-sm text-[#71807e] bg-white rounded-xl">
+                {trText("Henüz içerik raporu bulunmuyor.")}
+              </p>
+            )}
+          </section>
+        )
       )}
 
       {tab === "suggestions" && (
         <section className="space-y-4">
-          {overview.data?.suggestions.length ? overview.data.suggestions.map((s) => (
-            <article key={s.id} className="rounded-xl border border-[#09352e]/15 bg-[#fdfefb] p-4 sm:p-5 shadow-sm">
-              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                <div>
-                  <p className="font-mono text-[10px] text-[#71807e]">
-                    <Link to={`/gonderi/${s.post.id}`} className="hover:text-[#007f24] underline">Gönderi #{s.post.id}</Link> · Öneren @{s.author.username}
-                  </p>
-                  <h2 className="mt-2 font-serif text-xl sm:text-2xl text-[#09352e]">
-                    {s.commonName} <em className="text-[#50665d]">{s.species}</em>
-                  </h2>
-                  <p className="mt-2 font-mono text-[11px] leading-6 text-[#50665d]">
-                    {s.kingdom} → {s.phylum} → {s.className} → {s.orderName} → {s.family} → {s.genus}
-                  </p>
-                  {s.note && <p className="mt-3 text-sm bg-gray-50 p-2 rounded border border-gray-100">{s.note}</p>}
+          {overview.data?.suggestions.length ? (
+            overview.data.suggestions.map((s) => (
+              <article
+                key={s.id}
+                className="rounded-xl border border-[#09352e]/15 bg-[#fdfefb] p-4 sm:p-5 shadow-sm"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                  <div>
+                    <p className="font-mono text-[10px] text-[#71807e]">
+                      <Link
+                        to={`/gonderi/${s.post.id}`}
+                        className="hover:text-[#007f24] underline"
+                      >
+                        {trText("Gönderi #")}
+                        {s.post.id}
+                      </Link>
+                      {trText(" · Öneren @")}
+                      {s.author.username}
+                    </p>
+                    <h2 className="mt-2 font-serif text-xl sm:text-2xl text-[#09352e]">
+                      <CommonName taxon={s} />{" "}
+                      <em className="text-[#50665d]">{s.species}</em>
+                    </h2>
+                    <p className="mt-2 font-mono text-[11px] leading-6 text-[#50665d]">
+                      {s.kingdom} → {s.phylum} → {s.className} → {s.orderName} →{" "}
+                      {s.family} → {s.genus}
+                    </p>
+                    {s.note && (
+                      <TranslatedContent
+                        kind="suggestion"
+                        id={s.id}
+                        text={s.note}
+                        className="mt-3 text-sm bg-gray-50 p-2 rounded border border-gray-100"
+                      />
+                    )}
+                  </div>
+                  <button
+                    onClick={() => accept.mutate({ suggestionId: s.id })}
+                    className={`${buttonClass} w-full sm:w-auto justify-center`}
+                  >
+                    <Check size={16} />
+                    {trText(" Doğru tür olarak kaydet")}
+                  </button>
                 </div>
-                <button onClick={() => accept.mutate({ suggestionId: s.id })} className={`${buttonClass} w-full sm:w-auto justify-center`}>
-                  <Check size={16} /> Doğru tür olarak kaydet
-                </button>
-              </div>
-            </article>
-          )) : (
-            <p className="border-y border-[#09352e]/15 py-12 text-center text-sm text-[#71807e] bg-white rounded-xl">Karşılaştırma bekleyen tür önerisi yok.</p>
+              </article>
+            ))
+          ) : (
+            <p className="border-y border-[#09352e]/15 py-12 text-center text-sm text-[#71807e] bg-white rounded-xl">
+              {trText("Karşılaştırma bekleyen tür önerisi yok.")}
+            </p>
           )}
         </section>
       )}
@@ -135,7 +305,7 @@ export default function AdminPage() {
           <input
             type="text"
             className={inputClass}
-            placeholder="Kullanıcı adı, isim veya soyisim ile ara…"
+            placeholder={trText("Kullanıcı adı, isim veya soyisim ile ara…")}
             value={userSearch}
             onChange={(e) => setUserSearch(e.target.value)}
           />
@@ -145,30 +315,47 @@ export default function AdminPage() {
               <table className="w-full min-w-[750px] border-collapse text-left relative">
                 <thead className="sticky top-0 z-10 bg-gray-50 shadow-sm">
                   <tr className="border-b border-[#09352e]/20 font-mono text-[10px] uppercase tracking-wider text-[#71807e]">
-                    <th className="py-3 px-4 w-12 text-center">Sil</th>
-                    <th className="py-3 px-4">Kullanıcı</th>
-                    <th className="px-4">Biyografi</th>
-                    <th className="px-4">İtibar</th>
-                    <th className="px-4">Yetki</th>
+                    <th className="py-3 px-4 w-12 text-center">
+                      {trText("Sil")}
+                    </th>
+                    <th className="py-3 px-4">{trText("Kullanıcı")}</th>
+                    <th className="px-4">{trText("Biyografi")}</th>
+                    <th className="px-4">{trText("İtibar")}</th>
+                    <th className="px-4">{trText("Yetki")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {users.data
                     ?.filter((u) => {
                       const term = userSearch.toLowerCase();
-                      const fullName = `${u.firstName} ${u.lastName}`.toLowerCase();
+                      const fullName =
+                        `${u.firstName} ${u.lastName}`.toLowerCase();
                       const username = u.username.toLowerCase();
                       return fullName.includes(term) || username.includes(term);
                     })
                     .map((u) => (
-                      <tr key={u.id} className="border-b border-[#09352e]/10 hover:bg-gray-50/50 transition-colors">
+                      <tr
+                        key={u.id}
+                        className="border-b border-[#09352e]/10 hover:bg-gray-50/50 transition-colors"
+                      >
                         <td className="py-3 px-4 text-center">
-                          <button 
+                          <button
                             className="text-[#a63f36] hover:text-[#8d302a] hover:bg-[#a63f36]/10 p-2 rounded-lg transition-colors disabled:opacity-50"
-                            title="Kullanıcıyı Sil"
-                            disabled={user?.role !== "admin" || u.id === user.id || deleteUser.isPending}
+                            title={trText("Kullanıcıyı Sil")}
+                            disabled={
+                              user?.role !== "admin" ||
+                              u.id === user.id ||
+                              deleteUser.isPending
+                            }
                             onClick={() => {
-                              if (window.confirm(`${u.firstName} ${u.lastName} adlı kullanıcıyı kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz!`)) {
+                              if (
+                                window.confirm(
+                                  trText(
+                                    "{0} {1} adlı kullanıcıyı kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz!",
+                                    [u.firstName, u.lastName],
+                                  ),
+                                )
+                              ) {
                                 deleteUser.mutate({ userId: u.id });
                               }
                             }}
@@ -178,8 +365,8 @@ export default function AdminPage() {
                         </td>
                         <td className="py-3 px-4">
                           {/* DÜZELTİLDİ: "to" yolu /profil/${u.username} olarak değiştirildi */}
-                          <Link 
-                            to={`/profil/${u.username}`} 
+                          <Link
+                            to={`/profil/${u.username}`}
                             className="flex items-center gap-3 hover:bg-[#007f24]/5 p-2 -ml-2 rounded-lg transition-colors group"
                             title={`${u.firstName} profiline git`}
                           >
@@ -188,22 +375,36 @@ export default function AdminPage() {
                               <p className="text-sm font-semibold text-[#09352e] group-hover:text-[#007f24] transition-colors">
                                 {u.firstName} {u.lastName}
                               </p>
-                              <p className="font-mono text-[10px] text-[#71807e]">@{u.username}</p>
+                              <p className="font-mono text-[10px] text-[#71807e]">
+                                @{u.username}
+                              </p>
                             </div>
                           </Link>
                         </td>
-                        <td className="max-w-[200px] truncate px-4 text-xs text-[#50665d]">{u.bio || "-"}</td>
-                        <td className="font-mono text-xs px-4">{u.reputation}</td>
+                        <td className="max-w-[200px] truncate px-4 text-xs text-[#50665d]">
+                          {u.bio || "-"}
+                        </td>
+                        <td className="font-mono text-xs px-4">
+                          {u.reputation}
+                        </td>
                         <td className="px-4">
-                          <select 
-                            className={`${inputClass} max-w-36 text-sm`} 
-                            value={u.role} 
-                            disabled={user?.role !== "admin" || role.isPending} 
-                            onChange={(e) => role.mutate({ userId: u.id, role: e.target.value as "user" | "moderator" | "admin" })}
+                          <select
+                            className={`${inputClass} max-w-36 text-sm`}
+                            value={u.role}
+                            disabled={user?.role !== "admin" || role.isPending}
+                            onChange={(e) =>
+                              role.mutate({
+                                userId: u.id,
+                                role: e.target.value as
+                                  "user" | "moderator" | "admin",
+                              })
+                            }
                           >
-                            <option value="user">Kullanıcı</option>
-                            <option value="moderator">Moderatör</option>
-                            <option value="admin">Admin</option>
+                            <option value="user">{trText("Kullanıcı")}</option>
+                            <option value="moderator">
+                              {trText("Moderatör")}
+                            </option>
+                            <option value="admin">{trText("Admin")}</option>
                           </select>
                         </td>
                       </tr>
@@ -211,11 +412,13 @@ export default function AdminPage() {
                 </tbody>
               </table>
             </div>
-            
+
             {user?.role !== "admin" && (
               <div className="p-4 bg-gray-50 border-t flex items-center gap-2 text-sm text-[#71807e]">
                 <ShieldCheck size={17} className="text-[#a96d15]" />
-                Yetki değişiklikleri yalnızca admin hesabına açıktır.
+                {trText(
+                  "Yetki değişiklikleri yalnızca admin hesabına açıktır.",
+                )}
               </div>
             )}
           </div>

@@ -1,3 +1,4 @@
+import { t as trText } from "@/lib/i18n";
 import { useEffect, useId, useRef, useState } from "react";
 import {
   LoaderCircle,
@@ -50,7 +51,11 @@ export default function VideoPlayer({
         "(prefers-reduced-motion: reduce)",
       ).matches;
       const saveData = (
-        navigator as Navigator & { connection?: { saveData?: boolean } }
+        navigator as Navigator & {
+          connection?: {
+            saveData?: boolean;
+          };
+        }
       ).connection?.saveData;
       if (
         nearby &&
@@ -116,7 +121,10 @@ export default function VideoPlayer({
   }
   async function fullscreen() {
     const element = video.current as
-      (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
+      | (HTMLVideoElement & {
+          webkitEnterFullscreen?: () => void;
+        })
+      | null;
     try {
       if (container.current?.requestFullscreen)
         await container.current.requestFullscreen();
@@ -129,7 +137,7 @@ export default function VideoPlayer({
     <div
       ref={container}
       className="relative h-full w-full bg-[#0a120f] text-white"
-      aria-label={label + " · Video"}
+      aria-label={label + trText(" · Video")}
     >
       <video
         ref={video}
@@ -184,14 +192,14 @@ export default function VideoPlayer({
           className="pointer-events-none absolute inset-0 grid place-items-center"
         >
           <LoaderCircle className="animate-spin" size={30} />
-          <span className="sr-only">Video yükleniyor</span>
+          <span className="sr-only">{trText("Video yükleniyor")}</span>
         </div>
       )}
       {!playing && !failed && (
         <button
           type="button"
           className="absolute left-1/2 top-1/2 grid h-16 w-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-black/55"
-          aria-label="Videoyu oynat"
+          aria-label={trText("Videoyu oynat")}
           onClick={() => void toggle()}
         >
           <Play size={28} fill="currentColor" />
@@ -202,9 +210,9 @@ export default function VideoPlayer({
           role="status"
           className="absolute inset-0 grid place-items-center px-5 text-center text-sm"
         >
-          Video şu anda oynatılamadı.{" "}
+          {trText("Video şu anda oynatılamadı.")}{" "}
           <a href={url} target="_blank" rel="noreferrer" className="underline">
-            Videoyu aç
+            {trText("Videoyu aç")}
           </a>
         </p>
       )}
@@ -213,12 +221,12 @@ export default function VideoPlayer({
           type="button"
           className="grid h-11 w-11 place-items-center rounded-full hover:bg-white/15"
           onClick={() => void toggle()}
-          aria-label={playing ? "Videoyu duraklat" : "Videoyu oynat"}
+          aria-label={playing ? "Videoyu duraklat" : trText("Videoyu oynat")}
         >
           {playing ? <Pause size={20} /> : <Play size={20} />}
         </button>
         <input
-          aria-label="Video konumu"
+          aria-label={trText("Video konumu")}
           type="range"
           min={0}
           max={duration || 1}
@@ -238,7 +246,7 @@ export default function VideoPlayer({
         <button
           type="button"
           className="grid h-11 w-11 place-items-center rounded-full hover:bg-white/15"
-          aria-label={muted ? "Sesi aç" : "Sesi kapat"}
+          aria-label={muted ? trText("Sesi aç") : trText("Sesi kapat")}
           onClick={() => setMuted((value) => !value)}
         >
           {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
@@ -246,7 +254,7 @@ export default function VideoPlayer({
         <button
           type="button"
           className="grid h-11 w-11 place-items-center rounded-full hover:bg-white/15"
-          aria-label="Tam ekran video"
+          aria-label={trText("Tam ekran video")}
           onClick={() => void fullscreen()}
         >
           <Maximize size={19} />

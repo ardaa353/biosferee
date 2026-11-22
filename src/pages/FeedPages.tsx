@@ -1,3 +1,4 @@
+import { t as trText } from "@/lib/i18n";
 import {
   useCallback,
   useEffect,
@@ -19,7 +20,6 @@ import {
   buttonClass,
   secondaryButton,
 } from "@/components/BioUI";
-
 function viewedPosts(key: string): number[] {
   try {
     const data = JSON.parse(localStorage.getItem(key) || "[]");
@@ -116,32 +116,34 @@ function ObservationFeed({ unknown = false }: { unknown?: boolean }) {
     <div className="mx-auto max-w-[840px]">
       {unknown && (
         <PageHeading
-          eyebrow="Toplulukla tanımla"
-          title="Türü bilinmeyenler"
-          description="Tanımlanmayı bekleyen gözlemleri incele ve tür önerilerinle katkı sağla."
+          eyebrow={trText("Toplulukla tanımla")}
+          title={trText("Türü bilinmeyenler")}
+          description={trText(
+            "Tanımlanmayı bekleyen gözlemleri incele ve tür önerilerinle katkı sağla.",
+          )}
           action={
             <Link to="/paylas?bilinmiyor=1" className={buttonClass}>
               <Plus size={17} />
-              Gözlem paylaş
+              {trText("Gözlem paylaş")}
             </Link>
           }
         />
       )}
-      {!unknown && <h1 className="sr-only">Canlı gözlemleri</h1>}
+      {!unknown && <h1 className="sr-only">{trText("Canlı gözlemleri")}</h1>}
       <div className="mb-5">
         <div
           className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
           role="group"
-          aria-label="Âleme göre filtrele"
+          aria-label={trText("Âleme göre filtrele")}
         >
           {[
-            ["all", "Tümü"],
-            ["Animalia", "Hayvanlar"],
-            ["Plantae", "Bitkiler"],
-            ["Fungi", "Mantarlar"],
-            ["Bacteria", "Bakteriler"],
-            ["Protista", "Protistler"],
-            ["Archaea", "Arkeler"],
+            ["all", trText("Tümü")],
+            ["Animalia", trText("Hayvanlar")],
+            ["Plantae", trText("Bitkiler")],
+            ["Fungi", trText("Mantarlar")],
+            ["Bacteria", trText("Bakteriler")],
+            ["Protista", trText("Protistler")],
+            ["Archaea", trText("Arkeler")],
           ].map(([key, label]) => (
             <button
               key={key}
@@ -149,7 +151,7 @@ function ObservationFeed({ unknown = false }: { unknown?: boolean }) {
               onClick={() => setKingdom(key)}
               className={`min-h-11 shrink-0 rounded-full border px-4 text-sm font-medium transition ${kingdom === key ? "border-[#143e31] bg-[#143e31] text-white" : "border-[#09352e]/15 bg-white text-[#40574c] hover:border-[#007f24]"}`}
             >
-              {label}
+              {trText(label)}
             </button>
           ))}
         </div>
@@ -180,8 +182,8 @@ function ObservationFeed({ unknown = false }: { unknown?: boolean }) {
                 onClick={() => void query.fetchNextPage()}
               >
                 {query.isFetchingNextPage
-                  ? "Gözlemler getiriliyor…"
-                  : "Daha fazla gözlem"}
+                  ? trText("Gözlemler getiriliyor…")
+                  : trText("Daha fazla gözlem")}
               </button>
             </div>
           )}
@@ -190,24 +192,30 @@ function ObservationFeed({ unknown = false }: { unknown?: boolean }) {
         <Empty
           title={
             kingdom !== "all"
-              ? "Bu âlemde henüz gözlem yok"
+              ? trText("Bu âlemde henüz gözlem yok")
               : unknown
-                ? "Tanımlama bekleyen gözlem yok"
-                : "İlk gözlem seninle başlasın"
+                ? trText("Tanımlama bekleyen gözlem yok")
+                : trText("İlk gözlem seninle başlasın")
           }
           text={
             kingdom !== "all"
-              ? "Başka bir âlemi seçebilir veya bu gruba ilk gözlemi ekleyebilirsin."
+              ? trText(
+                  "Başka bir âlemi seçebilir veya bu gruba ilk gözlemi ekleyebilirsin.",
+                )
               : unknown
-                ? "Türünden emin olmadığın bir canlıyla karşılaştığında topluluğa sorabilirsin."
-                : "Fotoğraf, konum ve tür bilgisiyle doğanın ortak kaydına ilk katkıyı yap."
+                ? trText(
+                    "Türünden emin olmadığın bir canlıyla karşılaştığında topluluğa sorabilirsin.",
+                  )
+                : trText(
+                    "Fotoğraf, konum ve tür bilgisiyle doğanın ortak kaydına ilk katkıyı yap.",
+                  )
           }
           action={
             <Link
               to={unknown ? "/paylas?bilinmiyor=1" : "/paylas"}
               className={buttonClass}
             >
-              Gözlem ekle
+              {trText("Gözlem ekle")}
             </Link>
           }
         />

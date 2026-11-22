@@ -10,6 +10,17 @@
     <link media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap" rel="stylesheet" />
     <meta name="description" content="BioSfere — biyolojik gözlem, ortak harita ve vatandaş bilimi platformu." />
     <title>BioSfere — Canlı Gözlem Ağı</title>
+    <script>
+      (() => {
+        let language = /^tr(?:-|$)/i.test(navigator.language || "") ? "tr" : "en";
+        try {const saved = localStorage.getItem("biosfere_session") && localStorage.getItem("biosfere_locale_current"); if (saved === "tr" || saved === "en") language = saved;} catch {}
+        document.documentElement.lang = language;
+        if (language === "en") {
+          document.title = "BioSfere — Biodiversity Observations";
+          document.querySelector('meta[name="description"]').content = "BioSfere — biodiversity observations, a shared map and citizen science.";
+        }
+      })();
+    </script>
     <style id="biosfere-startup-styles">
       html,body{margin:0}
       .biosfere-startup{box-sizing:border-box;min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding:32px 20px;background:#f4f7f4;color:#123c30;text-align:center}
@@ -38,6 +49,7 @@
         <noscript>BioSfere'yi açmak için tarayıcında JavaScript'i etkinleştir.</noscript>
       </div>
     </div>
+    <script>if (document.documentElement.lang === "en") document.querySelector(".biosfere-startup-label").textContent = "Opening BioSfere…";</script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

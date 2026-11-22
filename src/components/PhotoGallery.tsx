@@ -1,10 +1,10 @@
+import { t as trText } from "@/lib/i18n";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import VideoPlayer from "./VideoPlayer";
 import { isVideoUrl } from "@contracts/media";
 import { photoSources, photoUrl } from "@/lib/photoUrls";
-
 function Picture({
   url,
   alt,
@@ -20,7 +20,7 @@ function Picture({
   if (failed === "original")
     return (
       <span className="self-center text-center text-sm" role="status">
-        Fotoğraf yüklenemedi.
+        {trText("Fotoğraf yüklenemedi.")}
       </span>
     );
   const widths = expanded
@@ -51,13 +51,14 @@ function Picture({
     />
   );
 }
-
 export default function PhotoGallery({
   images,
   alt,
   priority = false,
 }: {
-  images: { url: string }[];
+  images: {
+    url: string;
+  }[];
   alt: string;
   priority?: boolean;
 }) {
@@ -65,11 +66,13 @@ export default function PhotoGallery({
   const [expanded, setExpanded] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const touch = useRef<{ x: number; y: number } | null>(null);
+  const touch = useRef<{
+    x: number;
+    y: number;
+  } | null>(null);
   const count = images.length;
   const index = Math.min(slide, count - 1);
   const url = images[index]?.url;
-
   useEffect(() => {
     const element = dialog.current;
     if (!expanded || !element) return;
@@ -82,7 +85,6 @@ export default function PhotoGallery({
       trigger.current?.focus({ preventScroll: true });
     };
   }, [expanded]);
-
   if (!url) return null;
   const move = (step: number) =>
     setSlide((value) => (Math.min(value, count - 1) + step + count) % count);
@@ -92,7 +94,7 @@ export default function PhotoGallery({
         <button
           type="button"
           className={"gallery-arrow gallery-prev" + (full ? " large" : "")}
-          aria-label="Önceki medya"
+          aria-label={trText("Önceki medya")}
           onClick={() => move(-1)}
         >
           <ChevronLeft />
@@ -100,7 +102,7 @@ export default function PhotoGallery({
         <button
           type="button"
           className={"gallery-arrow gallery-next" + (full ? " large" : "")}
-          aria-label="Sonraki medya"
+          aria-label={trText("Sonraki medya")}
           onClick={() => move(1)}
         >
           <ChevronRight />
@@ -132,7 +134,7 @@ export default function PhotoGallery({
             type="button"
             ref={trigger}
             className="grid h-full w-full cursor-zoom-in"
-            aria-label={alt + " · Fotoğrafı büyüt"}
+            aria-label={alt + trText(" · Fotoğrafı büyüt")}
             onClick={() => setExpanded(true)}
           >
             <Picture key={url} url={url} alt={alt} priority={priority} />
@@ -145,7 +147,7 @@ export default function PhotoGallery({
           <dialog
             ref={dialog}
             className="photo-dialog"
-            aria-label="Gözlem fotoğrafları"
+            aria-label={trText("Gözlem fotoğrafları")}
             onCancel={(event) => {
               event.preventDefault();
               setExpanded(false);
@@ -206,7 +208,7 @@ export default function PhotoGallery({
               type="button"
               autoFocus
               className="gallery-close"
-              aria-label="Görüntüleyiciyi kapat"
+              aria-label={trText("Görüntüleyiciyi kapat")}
               onClick={() => setExpanded(false)}
             >
               <X />

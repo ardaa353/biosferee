@@ -35,9 +35,9 @@ function photoInfo(photo?: Photo): SpeciesProfile["photo"] {
     return {url: url.href, credit: (photo.attribution || "iNaturalist").slice(0, 220), license: license.toUpperCase(), pageUrl: "https://www.inaturalist.org/photos/" + photo.id};
   } catch { return; }
 }
-async function lookup(species: string, kingdom: string): Promise<SpeciesProfile> {
+async function lookup(species: string, kingdom: string, language: "tr" | "en"): Promise<SpeciesProfile> {
   const empty: SpeciesProfile = {species, commonName: "", commonNameLanguage: ""};
-  const data = await query<{results?: Taxon[]}>("taxa", {q: species, rank: "species", locale: "tr", all_names: "true", is_active: "true", per_page: "5"});
+  const data = await query<{results?: Taxon[]}>("taxa", {q: species, rank: "species", locale: language, all_names: "true", is_active: "true", per_page: "5"});
   const normalized = species.toLowerCase(), kingdomId = kingdomIds[kingdom];
   const hits = ((data.results || []) as Taxon[]).filter(taxon =>
     [taxon.name, taxon.matched_term].some(name => name?.toLowerCase() === normalized) &&
@@ -46,7 +46,7 @@ async function lookup(species: string, kingdom: string): Promise<SpeciesProfile>
   const taxon = hits[0];
   const turkish = taxon.names?.find(name => name.is_valid !== false && name.locale === "tr")?.name;
   const english = taxon.english_common_name || taxon.names?.find(name => name.is_valid !== false && name.locale === "en")?.name;
-  const value: SpeciesProfile = {...empty, commonName: (turkish || english || "").slice(0, 200), commonNameLanguage: turkish ? "tr" : english ? "en" : "", pageUrl: "https://www.inaturalist.org/taxa/" + taxon.id};
+  const value: SpeciesProfile = {...empty, commonName: (language === "en" ? english || "" : turkish || english || "").slice(0, 200), commonNameLanguage: language === "en" ? (english ? "en" : "") : turkish ? "tr" : english ? "en" : "", pageUrl: "https://www.inaturalist.org/taxa/" + taxon.id};
   value.photo = photoInfo(taxon.default_photo);
   if (!value.photo) {
     try {
@@ -56,13 +56,13 @@ async function lookup(species: string, kingdom: string): Promise<SpeciesProfile>
   }
   return value;
 }
-export function speciesProfile(species: string, kingdom: string): Promise<SpeciesProfile> {
-  const key = kingdom + "/" + species.toLowerCase(), previous = cache.get(key);
+export function speciesProfile(species: string, kingdom: string, language: "tr" | "en" = "tr"): Promise<SpeciesProfile> {
+  const key = language + "/" + kingdom + "/" + species.toLowerCase(), previous = cache.get(key);
   if (previous && previous.expires > Date.now()) return Promise.resolve(previous.value);
   const running = pending.get(key);
   if (running) return running;
   if (pending.size >= 30) return Promise.resolve({species, commonName: "", commonNameLanguage: ""});
-  const result = lookup(species, kingdom).then(value => {
+  const result = lookup(species, kingdom, language).then(value => {
     if (cache.size >= 500) cache.delete(cache.keys().next().value!);
     cache.set(key, {value, expires: Date.now() + 6 * 60 * 60 * 1000});
     return value;

@@ -1,3 +1,4 @@
+import { t as trText } from "@/lib/i18n";
 export function installStartupCache() {
   if (!import.meta.env.PROD || !("serviceWorker" in navigator)) return;
   const install = () => {
@@ -28,7 +29,7 @@ export async function refreshStartupShell(): Promise<boolean> {
   });
 }
 export async function waitForServer(signal: AbortSignal) {
-  const deadline = Date.now() + 120_000;
+  const deadline = Date.now() + 120000;
   while (Date.now() < deadline) {
     signal.throwIfAborted();
     try {
@@ -60,5 +61,5 @@ export async function waitForServer(signal: AbortSignal) {
       if (signal.aborted) stop();
     });
   }
-  throw new Error("Sunucuya ulaşılamadı.");
+  throw new Error(trText("Sunucuya ulaşılamadı."));
 }

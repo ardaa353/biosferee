@@ -24,7 +24,7 @@ const transport = {
 };
 const trpcClient = trpc.createClient({
   links: [
-    splitLink({condition: operation => operation.path === "biosfere.taxonProfiles",
+    splitLink({condition: operation => operation.path === "biosfere.taxonProfiles" || operation.path.startsWith("biosfere.translations."),
       true: httpLink(transport), false: httpBatchLink({...transport, maxURLLength: 6000, maxItems: 8})}),
   ],
 });
