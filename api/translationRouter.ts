@@ -13,6 +13,7 @@ export const translationRouter = createRouter({
         id: z.number().int().positive(),
         revision: z.string().max(32).optional(),
         target: z.enum(["tr", "en"]),
+        preferClient: z.boolean().optional(),
       }),
     )
     .query(async ({ input, ctx }) => {
@@ -54,7 +55,7 @@ export const translationRouter = createRouter({
       // Only saved, visible records can be translated; this is not an arbitrary-text proxy.
       return {
         original: text,
-        ...(await translateContent(text, input.target)),
+        ...(await translateContent(text, input.target, input.preferClient)),
       };
     }),
 });

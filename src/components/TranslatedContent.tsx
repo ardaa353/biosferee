@@ -1,3 +1,5 @@
+import { useQuery } from "@tanstack/react-query";
+import { translateInBrowser } from "@/lib/contentTranslation";
 import { t as trText } from "@/lib/i18n";
 import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/providers/trpc";
@@ -14,6 +16,7 @@ export default function TranslatedContent({
   className?: string;
 }) {
   const locale = useLocale();
+  const utils = trpc.useUtils();
   const container = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
   const [original, setOriginal] = useState(false);
@@ -40,6 +43,7 @@ export default function TranslatedContent({
       kind,
       id,
       target: locale,
+      preferClient: true,
       revision: Array.from(text)
         .reduce(
           (hash, char) => Math.imul(hash ^ char.charCodeAt(0), 16777619),
@@ -55,7 +59,46 @@ export default function TranslatedContent({
     },
   );
   // Edited records must never display an older cached translation.
-  const result = query.data?.original === text ? query.data : undefined;
+  const serverResult = query.data?.original === text ? query.data : undefined;
+  const fallback = useQuery({
+    queryKey: ["observation-translation", kind, id, locale, text],
+    enabled:
+      visible &&
+      Boolean(
+        serverResult?.needsClientTranslation ||
+        serverResult?.unavailable ||
+        query.isError,
+      ),
+    staleTime: 30 * 60_000,
+    retry: false,
+    queryFn: async ({ signal }) => {
+      try {
+        return await translateInBrowser(
+          text,
+          serverResult?.source || (locale === "en" ? "tur" : "eng"),
+          locale,
+          signal,
+        );
+      } catch (error) {
+        signal.throwIfAborted();
+        // Server-side delivery remains available for browsers that block cross-origin requests.
+        const result = await utils.biosfere.translations.get.fetch({
+          kind,
+          id,
+          target: locale,
+          preferClient: false,
+        });
+        if (!result.translated) throw error;
+        return result;
+      }
+    },
+  });
+  const result = serverResult?.translated
+    ? serverResult
+    : fallback.data?.original === text
+      ? fallback.data
+      : serverResult;
+  const translating = query.isFetching || fallback.isFetching;
   return (
     <div ref={container}>
       <p
@@ -83,11 +126,11 @@ export default function TranslatedContent({
             {t(original ? trText("Çeviriyi göster") : trText("Aslını göster"))}
           </button>
         </div>
-      ) : query.isFetching ? (
+      ) : translating ? (
         <p role="status" className="mt-2 text-xs text-[#71807e]">
           {t("Çevriliyor…")}
         </p>
-      ) : result?.unavailable || query.isError ? (
+      ) : result?.unavailable || query.isError || fallback.isError ? (
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-[#71807e]">
           <span>
             {t("Çeviri şu anda kullanılamıyor. Özgün metin gösteriliyor.")}
@@ -95,7 +138,15 @@ export default function TranslatedContent({
           <button
             type="button"
             className="min-h-8 underline"
-            onClick={() => void query.refetch()}
+            onClick={() => {
+              if (
+                serverResult?.needsClientTranslation ||
+                serverResult?.unavailable ||
+                query.isError
+              )
+                void fallback.refetch();
+              else void query.refetch();
+            }}
           >
             {t(t("Yeniden dene"))}
           </button>

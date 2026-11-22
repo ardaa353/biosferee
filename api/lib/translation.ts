@@ -1,3 +1,14 @@
+import {
+  selectMyMemoryTranslation,
+  decodeTranslationEntities,
+  splitTranslationText,
+  languageCodes,
+} from "../../contracts/translation";
+export {
+  selectMyMemoryTranslation,
+  decodeTranslationEntities,
+  splitTranslationText,
+} from "../../contracts/translation";
 import { createHash } from "node:crypto";
 import { franc } from "franc-min";
 import { eq } from "drizzle-orm";
@@ -11,58 +22,10 @@ type Translation = {
   provider: string;
   translated: boolean;
   unavailable?: boolean;
+  needsClientTranslation?: boolean;
 };
 const cache = new Map<string, Translation>();
 const pending = new Map<string, Promise<Translation>>();
-export function selectMyMemoryTranslation(
-  text: string,
-  body: {
-    matches?: {
-      segment: string;
-      translation: string;
-      match: number;
-      "created-by"?: string;
-    }[];
-    responseData?: { translatedText?: string; match?: number };
-  },
-): string | undefined {
-  const normalize = (value: string) =>
-    value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
-  const matches = (body.matches || []).filter(
-    (match) => normalize(match.segment) === normalize(text),
-  );
-  const exact =
-    matches.find((match) => match["created-by"] === "MT!") ||
-    matches.find((match) => Number(match.match) >= 0.99);
-  return (
-    exact?.translation ||
-    (Number(body.responseData?.match) >= 0.99
-      ? body.responseData?.translatedText
-      : undefined)
-  );
-}
-export function decodeTranslationEntities(text: string) {
-  const entities: Record<string, string> = {
-    amp: "&",
-    quot: '"',
-    apos: "'",
-    lt: "<",
-    gt: ">",
-    nbsp: " ",
-  };
-  return text.replace(
-    /&(#x[0-9a-f]+|#\d+|amp|quot|apos|lt|gt|nbsp);/gi,
-    (whole, entity: string) => {
-      if (!entity.startsWith("#"))
-        return entities[entity.toLowerCase()] || whole;
-      const code =
-        entity[1].toLowerCase() === "x"
-          ? parseInt(entity.slice(2), 16)
-          : Number(entity.slice(1));
-      return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
-    },
-  );
-}
 let unavailableUntil = 0;
 let active = 0;
 const waiting: (() => void)[] = [];
@@ -88,30 +51,6 @@ export function detectLanguage(text: string): string {
     return "eng";
   const language = franc(text, { minLength: 20 });
   return language === "und" ? "tur" : language;
-}
-export function splitTranslationText(text: string, maxBytes = 450): string[] {
-  const chunks: string[] = [];
-  let chunk = "";
-  // Keep words and paragraph breaks, and respect MyMemory's UTF-8 byte limit.
-  for (const token of text.match(/\S+\s*|\s+/gu) ?? []) {
-    if (chunk && Buffer.byteLength(chunk + token) > maxBytes) {
-      chunks.push(chunk);
-      chunk = "";
-    }
-    if (Buffer.byteLength(token) <= maxBytes) {
-      chunk += token;
-      continue;
-    }
-    for (const char of token) {
-      if (Buffer.byteLength(chunk + char) > maxBytes) {
-        chunks.push(chunk);
-        chunk = "";
-      }
-      chunk += char;
-    }
-  }
-  if (chunk) chunks.push(chunk);
-  return chunks;
 }
 function remember(key: string, value: Translation) {
   if (cache.size >= 1000) cache.delete(cache.keys().next().value!);
@@ -155,83 +94,6 @@ async function translateWithProvider(
   }
   if (Date.now() < unavailableUntil)
     throw new Error("Translation quota unavailable");
-  const languageCodes: Record<string, string> = {
-    tur: "tr",
-    eng: "en",
-    fra: "fr",
-    deu: "de",
-    spa: "es",
-    ita: "it",
-    por: "pt",
-    nld: "nl",
-    rus: "ru",
-    ukr: "uk",
-    ara: "ar",
-    pes: "fa",
-    fas: "fa",
-    pol: "pl",
-    jpn: "ja",
-    cmn: "zh",
-    zho: "zh",
-    kor: "ko",
-    hin: "hi",
-    urd: "ur",
-    ben: "bn",
-    ell: "el",
-    ron: "ro",
-    bul: "bg",
-    ces: "cs",
-    slk: "sk",
-    slv: "sl",
-    hrv: "hr",
-    srp: "sr",
-    bos: "bs",
-    hun: "hu",
-    fin: "fi",
-    dan: "da",
-    swe: "sv",
-    nob: "nb",
-    nno: "nn",
-    heb: "he",
-    ind: "id",
-    msa: "ms",
-    vie: "vi",
-    tha: "th",
-    tam: "ta",
-    tel: "te",
-    mar: "mr",
-    guj: "gu",
-    pan: "pa",
-    nep: "ne",
-    sin: "si",
-    mal: "ml",
-    kan: "kn",
-    uzn: "uz",
-    kaz: "kk",
-    azj: "az",
-    hye: "hy",
-    kat: "ka",
-    sqi: "sq",
-    lit: "lt",
-    lav: "lv",
-    est: "et",
-    mkd: "mk",
-    cat: "ca",
-    eus: "eu",
-    glg: "gl",
-    afr: "af",
-    swh: "sw",
-    tgl: "tl",
-    khm: "km",
-    mya: "my",
-    amh: "am",
-    yor: "yo",
-    hau: "ha",
-    ibo: "ig",
-    som: "so",
-    zul: "zu",
-    bel: "be",
-  };
   const translated: string[] = [];
   for (const chunk of splitTranslationText(text)) {
     const url = new URL("https://api.mymemory.translated.net/get");
@@ -279,6 +141,7 @@ async function translateWithProvider(
 export async function translateContent(
   text: string,
   target: Locale,
+  preferClient = false,
 ): Promise<Translation> {
   const source = detectLanguage(text);
   const original: Translation = {
@@ -294,7 +157,8 @@ export async function translateContent(
     .digest("hex");
   const saved = cache.get(key);
   if (saved) return saved;
-  if (pending.has(key)) return pending.get(key)!;
+  const requestKey = key + (preferClient ? "/client" : "/server");
+  if (pending.has(requestKey)) return pending.get(requestKey)!;
   // Bound concurrent third-party work and preserve availability of the main site.
   if (pending.size >= 60) return { ...original, unavailable: true };
   const task = (async () => {
@@ -315,6 +179,12 @@ export async function translateContent(
     } catch {
       /* A storage outage must not prevent reading observations. */
     }
+    if (preferClient && !process.env.LIBRETRANSLATE_URL)
+      return {
+        ...original,
+        provider: "MyMemory",
+        needsClientTranslation: true,
+      };
     try {
       const result = await withSlot(() =>
         translateWithProvider(text, source, target),
@@ -348,7 +218,7 @@ export async function translateContent(
     } catch {
       return { ...original, unavailable: true };
     }
-  })().finally(() => pending.delete(key));
-  pending.set(key, task);
+  })().finally(() => pending.delete(requestKey));
+  pending.set(requestKey, task);
   return task;
 }

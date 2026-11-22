@@ -66,7 +66,11 @@ describe("Çeviri erişimi", () => {
       target: "en",
       ...{ text: "arbitrary request" },
     });
-    expect(mocks.translate).toHaveBeenCalledWith("Özgün gözlem notu.", "en");
+    expect(mocks.translate).toHaveBeenCalledWith(
+      "Özgün gözlem notu.",
+      "en",
+      undefined,
+    );
     expect(result.original).toBe("Özgün gözlem notu.");
   });
 });

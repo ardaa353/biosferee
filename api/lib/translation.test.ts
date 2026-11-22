@@ -98,6 +98,19 @@ describe("Gözlem metni çevirisi", () => {
       unavailable: true,
     });
   });
+  it("tarayıcı tercihinde sunucu kotasını harcamadan çeviri bilgisini döndürür", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const text = "Bu gözlemin çevirisi tarayıcıdan yapılacaktır.";
+    expect(await translateContent(text, "en", true)).toMatchObject({
+      text,
+      source: "tur",
+      provider: "MyMemory",
+      needsClientTranslation: true,
+      translated: false,
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it("HTML varlıklarını düz metne çözer", () => {
     expect(
       decodeTranslationEntities(
