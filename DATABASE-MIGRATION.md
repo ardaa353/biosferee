@@ -45,7 +45,24 @@ public observation records. Do not start paid service usage without the owner's 
 Photos/videos remain in the existing Cloudinary account. The exact database URLs pointing
 to those files move with their records; copying or re-uploading media is unnecessary.
 
-## Draft request to Aiven support (not sent)
+## Preparation status (23 November 2026)
+
+- Signed in to the owner's existing TiDB organization. Its existing `biosfere-db`
+  Starter instance is active, MySQL-compatible, and displays Current Spend: Free.
+  No payment card was added and no paid upgrade was submitted.
+- A read-only information-schema query confirmed that no application tables existed.
+  Created the dedicated, empty `biosfere` database using utf8mb4; no existing table
+  or record was overwritten.
+- Submitted a support request from the owner's signed-in Aiven account for no-charge
+  read-only export access or a complete logical SQL export. It explicitly forbids paid
+  activation, charges, and deletion, and requests preservation of the service/backups.
+  Awaiting a human response; the documentation assistant confirmed there is no
+  self-service free export path while the source is powered off.
+- No rows have been transferred and Render DATABASE_URL has not been switched.
+  Source access, destination application credentials, a write freeze, verified copy,
+  and cutover checks are still required. Do not report the migration as completed.
+
+## Request sent to Aiven support
 
 Our trial MySQL service is powered off. We need to move our existing application data
 to another provider. Could you provide temporary **read-only export access at no charge**,
