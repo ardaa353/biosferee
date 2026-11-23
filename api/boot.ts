@@ -10,6 +10,7 @@ import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
+import { databaseHealth } from "./lib/databaseHealth";
 import { log } from "./lib/logger";
 import { handleClientLog } from "./lib/clientlog";
 import { REQUEST_ID_HEADER, runWithRequestId } from "./lib/requestcontext";
@@ -91,6 +92,11 @@ app.post(
 app.get("/api/health", c => {
   c.header("Cache-Control", "no-store");
   return c.json({status: "ok"});
+});
+app.get("/api/health/database", async c => {
+  c.header("Cache-Control", "no-store");
+  const result = await databaseHealth();
+  return c.json(result, result.status === "ok" ? 200 : 503);
 });
 app.get("/api/taxa", async c => {
   const q = (c.req.query("q") ?? "").trim();

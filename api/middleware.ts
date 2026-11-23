@@ -2,6 +2,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
 import { log } from "./lib/logger";
+import { databaseFailure } from "./lib/databaseHealth";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -18,9 +19,9 @@ const t = initTRPC.context<TrpcContext>().create({
       log.error("trpc procedure failed", {
         path: shape.data?.path,
         code: error.code,
-        error: error.message,
-        stack: error.stack,
+        failure: databaseFailure(error.cause),
       });
+      return { ...shape, message: "Sunucuya şu anda ulaşılamıyor. Lütfen biraz sonra tekrar deneyin." };
     }
     return shape;
   },
