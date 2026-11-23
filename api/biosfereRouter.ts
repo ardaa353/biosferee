@@ -1,14 +1,8 @@
-import { translationRouter } from "./translationRouter";
-import { getUserLanguage, saveUserLanguage, prepareLocalization } from "./lib/localization";
-import { prepareImageCleanup, queueCloudImages, kickCloudImageCleanup } from "./lib/imageCleanup";
-import { rankFeed } from "./lib/feedRanking";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { and, between, desc, eq, inArray, ne, sql } from "drizzle-orm";
-import { randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
-import { promisify } from "node:util";
-import { isCloudinaryImageUrl, isCloudinaryMediaUrl, cloudResourceType, cloudAssetUrl, signedImageUpload } from "./lib/cloudImages";
-import { speciesProfile } from "./lib/speciesProfiles";
+import { and, between, count, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { v2 as cloudinary } from "cloudinary";
 
 import {
   createRouter,
@@ -17,9 +11,9 @@ import {
   adminQuery,
 } from "./middleware";
 import { getDb } from "./queries/connection";
+import { ensureAuthSchema } from "./queries/authSchema";
 import {
   users,
-  userPreferences,
   sessions,
   posts,
   postImages,
@@ -28,6 +22,25 @@ import {
   suggestions,
   reports,
 } from "../db/schema";
+
+// ---------------------------------------------------------
+// CLOUDINARY AYARLARI
+// ---------------------------------------------------------
+
+const CLOUDINARY_CLOUD_NAME =
+  process.env.CLOUDINARY_CLOUD_NAME ||
+  process.env.VITE_CLOUDINARY_CLOUD_NAME ||
+  "whjqcubr";
+
+cloudinary.config({
+  cloud_name: CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// ---------------------------------------------------------
+// TAKSONOMİ ŞEMALARI
+// ---------------------------------------------------------
 
 const taxonomyFields = {
   kingdom: z.string().trim().max(100).optional(),
@@ -40,54 +53,58 @@ const taxonomyFields = {
   commonName: z.string().trim().max(200).optional(),
 };
 
-const requiredTaxonomy = {
-  kingdom: z.string().trim().min(2).max(100),
-  phylum: z.string().trim().min(2).max(150),
-  className: z.string().trim().min(2).max(150),
-  orderName: z.string().trim().min(2).max(150),
-  family: z.string().trim().min(2).max(150),
-  genus: z.string().trim().min(2).max(150),
+const suggestedTaxonomy = {
+  kingdom: z.string().trim().max(100).default(""),
+  phylum: z.string().trim().max(150).default(""),
+  className: z.string().trim().max(150).default(""),
+  orderName: z.string().trim().max(150).default(""),
+  family: z.string().trim().max(150).default(""),
+  genus: z.string().trim().max(150).default(""),
   species: z.string().trim().min(2).max(200),
-  commonName: z.string().trim().min(2).max(200),
+  commonName: z.string().trim().max(200).default(""),
 };
 
 const imageInput = z.object({
   name: z.string().min(1).max(240),
   contentType: z
     .string()
-    .regex(/^(image\/(jpeg|png|webp|gif)|video\/[a-z0-9.+-]+)$/i),
+    .regex(/^image\/(jpeg|png|webp|gif)$/),
   contentBase64: z.string().url().max(512),
 });
 
-const observationInput = z.object({
-  description: z.string().trim().min(10).max(5000),
-  unknown: z.boolean(),
-  ...taxonomyFields,
-  city: z.string().trim().min(2).max(100),
-  locality: z.string().trim().min(2).max(200),
-  lat: z.number().min(-90).max(90),
-  lng: z.number().min(-180).max(180),
-  images: z.array(imageInput),
-  collaboratorIds: z.array(z.number().int().positive()).max(30).default([]),
-}).refine(value => value.unknown || Boolean(value.species?.trim()), {
-  path: ["species"], message: "Bilimsel tür adı gir veya türü bilinmiyor seçeneğini kullan.",
-});
+// ---------------------------------------------------------
+// CLOUDINARY URL DOĞRULAMA
+// ---------------------------------------------------------
+
+function isCloudinaryImageUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+
+    if (url.protocol !== "https:") return false;
+    if (url.hostname !== "res.cloudinary.com") return false;
+    if (url.username || url.password) return false;
+
+    const expectedPrefix = `/${CLOUDINARY_CLOUD_NAME}/image/upload/`;
+
+    return url.pathname.startsWith(expectedPrefix);
+  } catch {
+    return false;
+  }
+}
 
 // ---------------------------------------------------------
 // ŞİFRE İŞLEMLERİ
 // ---------------------------------------------------------
 
-const deriveKey = promisify(scrypt);
-async function hashPassword(password: string) {
+function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
-  const key = await deriveKey(password, salt, 64) as Buffer;
-  return `${salt}:${key.toString("hex")}`;
+  return `${salt}:${scryptSync(password, salt, 64).toString("hex")}`;
 }
 
-async function verifyPassword(password: string, stored: string) {
+function verifyPassword(password: string, stored: string) {
   const [salt, key] = stored.split(":");
   if (!salt || !key) return false;
-  const candidate = await deriveKey(password, salt, 64) as Buffer;
+  const candidate = scryptSync(password, salt, 64);
   const actual = Buffer.from(key, "hex");
   return candidate.length === actual.length && timingSafeEqual(candidate, actual);
 }
@@ -100,10 +117,10 @@ async function resolveImages(
   files: z.infer<typeof imageInput>[]
 ): Promise<{ key: string }[]> {
   return files.map((file) => {
-    if (!isCloudinaryMediaUrl(file.contentBase64) || (file.contentType.startsWith("video/") !== (cloudResourceType(file.contentBase64) === "video"))) {
+    if (!isCloudinaryImageUrl(file.contentBase64)) {
       throw new TRPCError({
         code: "BAD_REQUEST",
-        message: "Geçerli bir Cloudinary medya adresi gönderilmelidir.",
+        message: "Geçerli bir Cloudinary fotoğraf adresi gönderilmelidir.",
       });
     }
     return {
@@ -130,89 +147,77 @@ function safeUser(user: typeof users.$inferSelect) {
 }
 
 async function createSession(userId: number) {
+  await ensureAuthSchema();
   const token = randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
   await getDb().insert(sessions).values({ userId, token, expiresAt });
   return token;
 }
 
-async function reputations(ids: number[]) {
-  if (!ids.length) return new Map<number, number>();
-  const rows = await getDb().select({ id: posts.authorId, total: sql<number>`count(*)` })
-    .from(likes).innerJoin(posts, eq(likes.postId, posts.id)).where(and(inArray(posts.authorId, ids), ne(posts.status, "removed"))).groupBy(posts.authorId);
-  return new Map(rows.map(row => [row.id, Number(row.total)]));
+async function authorReputations(authorIds: number[]) {
+  if (!authorIds.length) return new Map<number, number>();
+  const totals = await getDb().select({ authorId: posts.authorId, total: count(likes.id) })
+    .from(posts).innerJoin(likes, eq(likes.postId, posts.id))
+    .where(inArray(posts.authorId, authorIds)).groupBy(posts.authorId);
+  return new Map(totals.map(row => [row.authorId, row.total]));
 }
 
 async function enrichUsers(rows: (typeof users.$inferSelect)[]) {
-  const rep = await reputations(rows.map(user => user.id));
-  return rows.map(user => ({ ...safeUser(user), avatarUrl: user.avatarKey || undefined, reputation: rep.get(user.id) ?? 0 }));
+  const reputation = await authorReputations(rows.map(user => user.id));
+  return rows.map(user => ({ ...safeUser(user), avatarUrl: user.avatarKey || undefined, reputation: reputation.get(user.id) ?? 0 }));
 }
 
-function byPost<T>(rows: T[], postId: (row: T) => number) {
-  const grouped = new Map<number, T[]>();
-  for (const row of rows) {
-    const id = postId(row);
-    const group = grouped.get(id);
-    if (group) group.push(row);
-    else grouped.set(id, [row]);
-  }
-  return grouped;
-}
+// ---------------------------------------------------------
+// GÖNDERİLERİ LİSTELEME
+// ---------------------------------------------------------
 
-type FeedOptions = {status: "verified" | "unknown"; kingdom?: string; sort: "newest" | "reputation"; cursor: number; limit: number};
-async function listPosts(viewerId?: number, postId?: number, feed?: FeedOptions, postIds?: number[]) {
+async function listPosts(viewerId?: number, postId?: number) {
   const db = getDb();
-  const scores = db.select({authorId: posts.authorId, total: sql<number>`count(*)`.as("total")}).from(likes)
-    .innerJoin(posts, eq(likes.postId, posts.id)).where(ne(posts.status, "removed")).groupBy(posts.authorId).as("author_scores");
-  let selection = db.select({ post: posts, author: users }).from(posts).leftJoin(users, eq(users.id, posts.authorId))
-    .where(and(ne(posts.status, "removed"), postIds ? inArray(posts.id, postIds) : undefined, postId === undefined ? undefined : eq(posts.id, postId),
-      feed ? eq(posts.status, feed.status) : undefined, feed?.kingdom ? eq(posts.kingdom, feed.kingdom) : undefined)).$dynamic();
-  if (feed?.sort === "reputation") selection = selection.leftJoin(scores, eq(scores.authorId, posts.authorId));
-  selection = selection.orderBy(...(feed?.sort === "reputation" ? [desc(sql`coalesce(${scores.total}, 0)`), desc(posts.createdAt), desc(posts.id)] : [desc(posts.createdAt), desc(posts.id)]));
-  if (feed) selection = selection.limit(feed.limit + 1).offset(feed.cursor);
-  const rows = await selection;
+  const rows = await db
+    .select({ post: posts, author: users })
+    .from(posts)
+    .innerJoin(users, eq(users.id, posts.authorId))
+    .where(postId === undefined ? undefined : eq(posts.id, postId))
+    .orderBy(desc(posts.createdAt));
+
   if (!rows.length) return [];
-  const ids = rows.map(row => row.post.id);
-  const [images, reactions, partners, rep] = await Promise.all([
-    db.select().from(postImages).where(inArray(postImages.postId, ids)).orderBy(postImages.sortOrder, postImages.id),
-    db.select({ id: likes.postId, count: sql<number>`count(*)`, liked: sql<number>`max(case when ${likes.userId} = ${viewerId ?? -1} then 1 else 0 end)` })
-      .from(likes).where(inArray(likes.postId, ids)).groupBy(likes.postId),
-    db.select({ id: collaborators.postId, user: users }).from(collaborators).innerJoin(users, eq(users.id, collaborators.userId)).where(inArray(collaborators.postId, ids)),
-    reputations([...new Set(rows.flatMap(row => row.author ? [row.author.id] : []))]),
+
+  const ids = rows.map((row) => row.post.id);
+
+  const [imageRows, likeRows, collabRows, authorRep] = await Promise.all([
+    db.select().from(postImages).where(inArray(postImages.postId, ids)).orderBy(postImages.sortOrder),
+    db.select().from(likes).where(inArray(likes.postId, ids)),
+    db
+      .select({ collab: collaborators, user: users })
+      .from(collaborators)
+      .innerJoin(users, eq(users.id, collaborators.userId))
+      .where(inArray(collaborators.postId, ids)),
+    authorReputations([...new Set(rows.map(row => row.author.id))]),
   ]);
-  const imagesByPost = byPost(images, item => item.postId);
-  const partnersByPost = byPost(partners, item => item.id);
-  const likesByPost = new Map(reactions.map(item => [item.id, item]));
+  const imagesByPost = Map.groupBy(imageRows, image => image.postId);
+  const likesByPost = Map.groupBy(likeRows, like => like.postId);
+  const collabsByPost = Map.groupBy(collabRows, row => row.collab.postId);
+
   return rows.map(({ post, author }) => ({
     ...post,
-    author: author ? { ...safeUser(author), avatarUrl: author.avatarKey || undefined, reputation: rep.get(author.id) ?? 0, isSystem: false } : {
-      id: 0, firstName: "BioSfere", lastName: "", username: "", bio: "", role: "user" as const,
-      avatarKey: null, createdAt: post.createdAt, avatarUrl: undefined, reputation: 0, isSystem: true,
+    author: {
+      ...safeUser(author),
+      avatarUrl: author.avatarKey || undefined,
+      reputation: authorRep.get(author.id) ?? 0,
     },
-    images: (imagesByPost.get(post.id) || []).map(image => ({ id: image.id, key: image.fileKey, url: image.fileKey })),
-    likeCount: Number(likesByPost.get(post.id)?.count ?? 0),
-    liked: Number(likesByPost.get(post.id)?.liked ?? 0) === 1,
-    collaborators: (partnersByPost.get(post.id) || []).map(item => safeUser(item.user))
+    images: (imagesByPost.get(post.id) || [])
+      .map((image) => ({
+        id: image.id,
+        key: image.fileKey,
+        url: image.fileKey,
+      })),
+    likeCount: likesByPost.get(post.id)?.length ?? 0,
+    liked: viewerId
+      ? (likesByPost.get(post.id)?.some(like => like.userId === viewerId) ?? false)
+      : false,
+    collaborators: (collabsByPost.get(post.id) || [])
+      .map((item) => safeUser(item.user)),
   }));
-}
-
-const feedSessions = new Map<string, {expires: number; ids: number[]}>();
-async function recommendedFeed(viewerId: number, seed: string, kingdom: string | undefined, seenIds: number[]) {
-  const key = viewerId + "/" + seed + "/" + (kingdom || "all");
-  const cached = feedSessions.get(key);
-  if (cached && cached.expires > Date.now()) return cached.ids;
-  const db = getDb();
-  const fields = {id: posts.id, authorId: posts.authorId, kingdom: posts.kingdom, family: posts.family, genus: posts.genus, species: posts.species, createdAt: posts.createdAt};
-  const [candidates, liked] = await Promise.all([
-    db.select(fields).from(posts).where(and(eq(posts.status, "verified"), kingdom ? eq(posts.kingdom, kingdom) : undefined)).orderBy(desc(posts.createdAt), desc(posts.id)).limit(600),
-    db.select(fields).from(likes).innerJoin(posts, eq(posts.id, likes.postId)).where(and(eq(likes.userId, viewerId), ne(posts.status, "removed"))).orderBy(desc(likes.createdAt)).limit(150),
-  ]);
-  const rep = await reputations([...new Set(candidates.flatMap(post => post.authorId ? [post.authorId] : []))]);
-  const ids = rankFeed(candidates, liked, rep, new Set(seenIds), seed, viewerId);
-  for (const [session, value] of feedSessions) if (value.expires < Date.now()) feedSessions.delete(session);
-  if (feedSessions.size >= 400) feedSessions.delete(feedSessions.keys().next().value!);
-  feedSessions.set(key, {ids, expires: Date.now() + 30 * 60_000});
-  return ids;
 }
 
 // ---------------------------------------------------------
@@ -220,36 +225,11 @@ async function recommendedFeed(viewerId: number, seed: string, kingdom: string |
 // ---------------------------------------------------------
 
 export const biosfereRouter = createRouter({
-  translations: translationRouter,
-  videoUpload: authedQuery.mutation(async ({ctx}) => {
-    const publicId = "biosfere/posts/" + ctx.user.id + "/" + randomUUID();
-    const upload = signedImageUpload(publicId, "video");
-    await prepareImageCleanup();
-    // Unattached uploads are reclaimed after signatures expire. Saved posts protect their referenced media.
-    await getDb().transaction(tx => queueCloudImages(tx, [cloudAssetUrl(publicId, "video")], new Date(Date.now() + 2 * 60 * 60_000)));
-    return upload;
-  }),
-  taxonProfiles: publicQuery.input(z.object({language: z.enum(["tr", "en"]).default("tr"), taxa: z.array(z.object({species: z.string().trim().min(2).max(200), kingdom: z.string().trim().max(100)})).min(1).max(5)}))
-    .query(({input}) => Promise.all(input.taxa.map(taxon => speciesProfile(taxon.species, taxon.kingdom, input.language)))),
-  nearbySpecies: authedQuery.input(z.object({
-    lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180),
-    species: z.array(z.string().min(2).max(200)).min(1).max(5)
-  })).query(async ({input}) => {
-    const rows = await getDb().selectDistinct({ name: posts.species }).from(posts).where(and(
-      eq(posts.status, "verified"), inArray(posts.species, input.species),
-      between(posts.lat, input.lat - 0.91, input.lat + 0.91),
-      sql`(sin(radians(${posts.lat} - ${input.lat}) / 2) * sin(radians(${posts.lat} - ${input.lat}) / 2)
-          + cos(radians(${input.lat})) * cos(radians(${posts.lat}))
-          * sin(radians(${posts.lng} - ${input.lng}) / 2) * sin(radians(${posts.lng} - ${input.lng}) / 2))
-          <= ${Math.sin(100 / (2 * 6371)) ** 2}`
-    ));
-    return rows.flatMap(row => row.name ? [row.name] : []);
-  }),
   // -------------------------------------------------------
   // KİMLİK DOĞRULAMA
   // -------------------------------------------------------
   auth: createRouter({
-    me: publicQuery.query(async ({ ctx }) => (ctx.user ? {...safeUser(ctx.user), language: await getUserLanguage(ctx.user.id)} : null)),
+    me: publicQuery.query(({ ctx }) => (ctx.user ? safeUser(ctx.user) : null)),
 
     register: publicQuery
       .input(
@@ -281,12 +261,12 @@ export const biosfereRouter = createRouter({
 
         const [{ id }] = await db
           .insert(users)
-          .values({ firstName: input.firstName, lastName: input.lastName, username: input.username, email: input.email, phone: input.phone ?? "", passwordHash: await hashPassword(input.password), role, bio: input.bio || "" })
+          .values({ ...input, phone: input.phone ?? "", passwordHash: hashPassword(input.password), role, bio: input.bio || "" })
           .$returningId();
 
         const [user] = await db.select().from(users).where(eq(users.id, id));
 
-        return { token: await createSession(id), user: {...safeUser(user), language: await getUserLanguage(user.id)} };
+        return { token: await createSession(id), user: safeUser(user) };
       }),
 
     login: publicQuery
@@ -299,11 +279,11 @@ export const biosfereRouter = createRouter({
         const [mailUser] = user ? [] : await db.select().from(users).where(eq(users.email, identifier)).limit(1);
         const found = user ?? mailUser;
 
-        if (!found || !await verifyPassword(input.password, found.passwordHash)) {
+        if (!found || !verifyPassword(input.password, found.passwordHash)) {
           throw new TRPCError({ code: "UNAUTHORIZED", message: "Kullanıcı adı, e-posta veya şifre hatalı." });
         }
 
-        return { token: await createSession(found.id), user: {...safeUser(found), language: await getUserLanguage(found.id)} };
+        return { token: await createSession(found.id), user: safeUser(found) };
       }),
 
     logout: authedQuery.mutation(async ({ ctx }) => {
@@ -317,23 +297,17 @@ export const biosfereRouter = createRouter({
   // KULLANICILAR
   // -------------------------------------------------------
   users: createRouter({
-    setLanguage: authedQuery.input(z.object({language: z.enum(["tr", "en"])})).mutation(async ({ctx, input}) => {await saveUserLanguage(ctx.user.id, input.language); return {language: input.language};}),
     list: authedQuery.query(async () => enrichUsers(await getDb().select().from(users).orderBy(users.username))),
 
     updateProfile: authedQuery
       .input(z.object({ bio: z.string().trim().min(3).max(1000), avatar: imageInput.optional() }))
       .mutation(async ({ ctx, input }) => {
-        await prepareImageCleanup();
-        if (input.avatar && !isCloudinaryImageUrl(input.avatar.contentBase64)) throw new TRPCError({code: "BAD_REQUEST", message: "Profil fotoğrafı bir görüntü olmalı."});
-        const saved = input.avatar ? await resolveImages([input.avatar]) : [];
-        await getDb().transaction(async tx => {
-          const [user] = await tx.select().from(users).where(eq(users.id, ctx.user.id)).limit(1).for("update");
-          if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "Kullanıcı bulunamadı." });
-          const avatarKey = saved[0]?.key ?? user.avatarKey;
-          await tx.update(users).set({ bio: input.bio, avatarKey }).where(eq(users.id, user.id));
-          if (avatarKey !== user.avatarKey) await queueCloudImages(tx, [user.avatarKey]);
-        });
-        kickCloudImageCleanup();
+        let avatarKey = ctx.user.avatarKey;
+        if (input.avatar) {
+          const saved = await resolveImages([input.avatar]);
+          avatarKey = saved[0].key;
+        }
+        await getDb().update(users).set({ bio: input.bio, avatarKey }).where(eq(users.id, ctx.user.id));
         return { ok: true };
       }),
 
@@ -346,7 +320,7 @@ export const biosfereRouter = createRouter({
       }))
       .mutation(async ({ ctx, input }) => {
         const db = getDb();
-        const updates: Partial<typeof users.$inferInsert> = {};
+        const updates: any = {};
 
         if (input.email && input.email !== ctx.user.email) {
           const existingMail = await db.select({ id: users.id }).from(users).where(eq(users.email, input.email)).limit(1);
@@ -357,7 +331,7 @@ export const biosfereRouter = createRouter({
         }
 
         if (input.phone) updates.phone = input.phone;
-        if (input.password) updates.passwordHash = await hashPassword(input.password);
+        if (input.password) updates.passwordHash = hashPassword(input.password);
 
         if (Object.keys(updates).length > 0) {
           await db.update(users).set(updates).where(eq(users.id, ctx.user.id));
@@ -389,15 +363,42 @@ export const biosfereRouter = createRouter({
           throw new TRPCError({ code: "FORBIDDEN", message: "Bu hesabı silme yetkiniz yok." });
         }
 
-        await prepareImageCleanup();
-        await prepareLocalization();
-        await db.transaction(async tx => {
-          const [targetUser] = await tx.select().from(users).where(eq(users.id, input.userId)).limit(1).for("update");
-          if (!targetUser) throw new TRPCError({ code: "NOT_FOUND", message: "Kullanıcı bulunamadı." });
-          const userPosts = await tx.select({ id: posts.id }).from(posts).where(eq(posts.authorId, targetUser.id)).for("update");
-          const imagesToDelete = userPosts.length
-            ? await tx.select().from(postImages).where(inArray(postImages.postId, userPosts.map(post => post.id))) : [];
-          await queueCloudImages(tx, [targetUser.avatarKey, ...imagesToDelete.map(image => image.fileKey)]);
+        const [targetUser] = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
+        if (!targetUser) throw new TRPCError({ code: "NOT_FOUND", message: "Kullanıcı bulunamadı." });
+
+        if (targetUser.avatarKey) {
+          try {
+            const parts = targetUser.avatarKey.split("/upload/");
+            if (parts.length > 1) {
+              let publicId = parts[1].replace(/^v\d+\//, "");
+              publicId = publicId.substring(0, publicId.lastIndexOf(".")) || publicId;
+              await cloudinary.uploader.destroy(publicId);
+            }
+          } catch (err) {
+            console.error("Cloudinary profil resmi silme hatası:", err);
+          }
+        }
+
+        const userPosts = await db.select({ id: posts.id }).from(posts).where(eq(posts.authorId, targetUser.id));
+        if (userPosts.length > 0) {
+          const postIds = userPosts.map(p => p.id);
+          const imagesToDelete = await db.select().from(postImages).where(inArray(postImages.postId, postIds));
+          
+          for (const img of imagesToDelete) {
+            try {
+              const parts = img.fileKey.split("/upload/");
+              if (parts.length > 1) {
+                let publicId = parts[1].replace(/^v\d+\//, "");
+                publicId = publicId.substring(0, publicId.lastIndexOf(".")) || publicId;
+                await cloudinary.uploader.destroy(publicId);
+              }
+            } catch (err) {
+              console.error("Cloudinary post resmi silme hatası:", err);
+            }
+          }
+        }
+
+        await db.transaction(async (tx) => {
           await tx.delete(sessions).where(eq(sessions.userId, targetUser.id));
           await tx.delete(likes).where(eq(likes.userId, targetUser.id));
           await tx.delete(collaborators).where(eq(collaborators.userId, targetUser.id));
@@ -414,10 +415,8 @@ export const biosfereRouter = createRouter({
             await tx.delete(posts).where(eq(posts.authorId, targetUser.id));
           }
 
-          await tx.delete(userPreferences).where(eq(userPreferences.userId, targetUser.id));
           await tx.delete(users).where(eq(users.id, targetUser.id));
         });
-        kickCloudImageCleanup();
 
         return { ok: true };
       }),
@@ -427,35 +426,21 @@ export const biosfereRouter = createRouter({
   // GÖNDERİLER
   // -------------------------------------------------------
   posts: createRouter({
-    summary: publicQuery.query(async () => {
-      const [row] = await getDb().select({
-        verified: sql<number>`coalesce(sum(${posts.status} = 'verified'), 0)`,
-        unknown: sql<number>`coalesce(sum(${posts.status} = 'unknown'), 0)`,
-        species: sql<number>`count(distinct case when ${posts.status} = 'verified' then nullif(${posts.species}, '') end)`,
-        cities: sql<number>`count(distinct nullif(${posts.city}, ''))`,
-      }).from(posts).where(ne(posts.status, "removed"));
-      return {verified: Number(row.verified), unknown: Number(row.unknown), species: Number(row.species), cities: Number(row.cities)};
-    }),
-    feed: authedQuery.input(z.object({
-      status: z.enum(["verified", "unknown"]).default("verified"),
-      kingdom: z.string().trim().max(100).optional(),
-      sort: z.enum(["recommended", "newest", "reputation"]).default("recommended"),
-      seed: z.string().min(1).max(80).default("initial"),
-      seenIds: z.array(z.number().int().positive()).max(200).default([]),
-      cursor: z.number().int().min(0).max(10_000_000).nullish(),
-      limit: z.number().int().min(1).max(30).default(12),
-    })).query(async ({ctx, input}) => {
-      const cursor = input.cursor ?? 0;
-      if (input.sort === "recommended" && input.status === "verified") {
-        const ids = await recommendedFeed(ctx.user.id, input.seed, input.kingdom, input.seenIds);
-        const page = ids.slice(cursor, cursor + input.limit);
-        const rows = page.length ? await listPosts(ctx.user.id, undefined, undefined, page) : [];
-        const positions = new Map(page.map((id, index) => [id, index]));
-        rows.sort((a, b) => positions.get(a.id)! - positions.get(b.id)!);
-        return {items: rows, nextCursor: cursor + input.limit < ids.length ? cursor + input.limit : null};
-      }
-      const rows = await listPosts(ctx.user.id, undefined, {...input, sort: input.sort === "recommended" ? "newest" : input.sort, cursor});
-      return {items: rows.slice(0, input.limit), nextCursor: rows.length > input.limit ? cursor + input.limit : null};
+    nearbySpecies: publicQuery.input(z.object({
+      lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180),
+      species: z.array(z.string().min(2).max(200)).min(1).max(5),
+    })).query(async ({ input }) => {
+      const { lat, lng, species } = input;
+      const angular = 100 / 6371;
+      const distance = sql<number>`2 * 6371 * ASIN(SQRT(LEAST(1,
+        POW(SIN(RADIANS(${posts.lat} - ${lat}) / 2), 2)
+        + COS(RADIANS(${lat})) * COS(RADIANS(${posts.lat})) * POW(SIN(RADIANS(${posts.lng} - ${lng}) / 2), 2)
+      )))`;
+      const matches = await getDb().selectDistinct({ name: posts.species }).from(posts).where(and(
+        eq(posts.status, "verified"), inArray(posts.species, species),
+        between(posts.lat, lat - angular * 180 / Math.PI, lat + angular * 180 / Math.PI), sql`${distance} <= 100`,
+      ));
+      return matches.flatMap(row => row.name ? [row.name] : []);
     }),
     list: publicQuery.query(async ({ ctx }) => {
       const result = await listPosts(ctx.user?.id);
@@ -473,111 +458,78 @@ export const biosfereRouter = createRouter({
       }),
 
     create: authedQuery
-      .input(observationInput.safeExtend({ images: z.array(imageInput).min(1) }))
+      .input(
+        z
+          .object({
+            description: z.string().trim().min(10).max(5000),
+            unknown: z.boolean(),
+            ...taxonomyFields,
+            city: z.string().trim().min(2).max(100),
+            locality: z.string().trim().min(2).max(200),
+            lat: z.number().min(-90).max(90),
+            lng: z.number().min(-180).max(180),
+            images: z.array(imageInput).min(1),
+            collaboratorIds: z.array(z.number()).max(30).default([]),
+          })
+          .refine(value => value.unknown || (value.species?.length ?? 0) >= 2, {
+            path: ["species"], message: "Bilimsel tür adı gir veya türü bilinmiyor seçeneğini işaretle.",
+          })
+      )
       .mutation(async ({ ctx, input }) => {
         const db = getDb();
         const savedImages = await resolveImages(input.images);
 
-        const classification = {
-          kingdom: input.kingdom, phylum: input.phylum, className: input.className, orderName: input.orderName,
-          family: input.family, genus: input.genus, species: input.species, commonName: input.commonName,
-        };
-        const partnerIds = [...new Set(input.collaboratorIds)].filter(id => id !== ctx.user.id);
+        const tax = input.unknown
+          ? Object.fromEntries(Object.keys(taxonomyFields).map((key) => [key, null]))
+          : Object.fromEntries(Object.keys(taxonomyFields).map((key) => [key, input[key as keyof typeof input]]));
+
         return db.transaction(async tx => {
-          const [author] = await tx.select({ id: users.id }).from(users).where(eq(users.id, ctx.user.id)).limit(1).for("update");
-          if (!author) throw new TRPCError({ code: "UNAUTHORIZED", message: "Yeniden giriş yapmalısınız." });
-          const [{ id }] = await tx.insert(posts).values({
-            authorId: ctx.user.id, description: input.description,
-            status: input.unknown ? "unknown" : "verified",
-            ...(input.unknown ? {} : classification),
-            city: input.city, locality: input.locality, lat: input.lat, lng: input.lng,
-          }).$returningId();
-          for (let start = 0; start < savedImages.length; start += 100) {
-            await tx.insert(postImages).values(savedImages.slice(start, start + 100).map((image, index) =>
-              ({ postId: id, fileKey: image.key, sortOrder: start + index })));
+          const [{ id }] = await tx
+            .insert(posts)
+            .values({
+              authorId: ctx.user.id,
+              description: input.description,
+              status: input.unknown ? "unknown" : "verified",
+              ...tax,
+              city: input.city,
+              locality: input.locality,
+              lat: input.lat,
+              lng: input.lng,
+            })
+            .$returningId();
+
+          await tx.insert(postImages).values(
+            savedImages.map((image, index) => ({
+              postId: id,
+              fileKey: image.key,
+              sortOrder: index,
+            }))
+          );
+
+          const collaboratorIds = [...new Set(input.collaboratorIds)].filter((userId) => userId !== ctx.user.id);
+          if (collaboratorIds.length) {
+            await tx.insert(collaborators).values(collaboratorIds.map((userId) => ({ postId: id, userId })));
           }
-          if (partnerIds.length) await tx.insert(collaborators).values(partnerIds.map(userId => ({ postId: id, userId })));
           return { id };
         });
       }),
 
-    update: authedQuery
-      .input(observationInput.safeExtend({
-        id: z.number().int().positive(),
-        keptImageIds: z.array(z.number().int().positive()).default([]),
-      }).refine(value => value.images.length + value.keptImageIds.length > 0, {
-        path: ["images"], message: "En az bir fotoğraf bırakmalısın.",
-      }))
-      .mutation(async ({ ctx, input }) => {
-        const savedImages = await resolveImages(input.images);
-        await prepareImageCleanup();
-        const result = await getDb().transaction(async tx => {
-          const [post] = await tx.select().from(posts).where(eq(posts.id, input.id)).limit(1).for("update");
-          if (!post || post.status === "removed") throw new TRPCError({ code: "NOT_FOUND", message: "Gönderi bulunamadı." });
-          if (post.authorId !== ctx.user.id && ctx.user.role !== "admin") {
-            throw new TRPCError({ code: "FORBIDDEN", message: "Bu gönderiyi düzenleme yetkiniz yok." });
-          }
-          const currentImages = await tx.select().from(postImages).where(eq(postImages.postId, post.id));
-          const keptIds = [...new Set(input.keptImageIds)];
-          if (keptIds.some(id => !currentImages.some(image => image.id === id))) {
-            throw new TRPCError({ code: "CONFLICT", message: "Fotoğraflar değişmiş. Sayfayı yenileyip tekrar dene." });
-          }
-          const classification = {
-            kingdom: input.unknown ? null : input.kingdom ?? null,
-            phylum: input.unknown ? null : input.phylum ?? null,
-            className: input.unknown ? null : input.className ?? null,
-            orderName: input.unknown ? null : input.orderName ?? null,
-            family: input.unknown ? null : input.family ?? null,
-            genus: input.unknown ? null : input.genus ?? null,
-            species: input.unknown ? null : input.species ?? null,
-            commonName: input.unknown ? null : input.commonName ?? null,
-          };
-          await tx.update(posts).set({
-            description: input.description, ...classification,
-            status: input.unknown ? "unknown" : "verified",
-            city: input.city, locality: input.locality, lat: input.lat, lng: input.lng,
-          }).where(eq(posts.id, post.id));
-          const removed = currentImages.filter(image => !keptIds.includes(image.id));
-          await queueCloudImages(tx, removed.map(image => image.fileKey));
-          const removedIds = removed.map(image => image.id);
-          if (removedIds.length) await tx.delete(postImages).where(and(eq(postImages.postId, post.id), inArray(postImages.id, removedIds)));
-          for (const [sortOrder, id] of keptIds.entries()) {
-            await tx.update(postImages).set({ sortOrder }).where(and(eq(postImages.id, id), eq(postImages.postId, post.id)));
-          }
-          for (let start = 0; start < savedImages.length; start += 100) {
-            await tx.insert(postImages).values(savedImages.slice(start, start + 100).map((image, index) => ({
-              postId: post.id, fileKey: image.key, sortOrder: keptIds.length + start + index,
-            })));
-          }
-          const partnerIds = [...new Set(input.collaboratorIds)].filter(id => id !== post.authorId);
-          await tx.delete(collaborators).where(eq(collaborators.postId, post.id));
-          if (partnerIds.length) await tx.insert(collaborators).values(partnerIds.map(userId => ({postId: post.id, userId})));
-          return { id: post.id };
-        });
-        kickCloudImageCleanup();
-        return result;
-      }),
-
     toggleLike: authedQuery
-      .input(z.object({ postId: z.number().int().positive(), liked: z.boolean().optional() }))
+      .input(z.object({ postId: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const db = getDb();
-        return db.transaction(async tx => {
-          const [post] = await tx.select({id: posts.id, status: posts.status, authorId: posts.authorId}).from(posts).where(eq(posts.id, input.postId)).limit(1).for("update");
-          if (!post || post.status === "removed") throw new TRPCError({code: "NOT_FOUND", message: "Gönderi bulunamadı."});
-          const [existing] = await tx.select({id: likes.id}).from(likes)
-            .where(and(eq(likes.postId, input.postId), eq(likes.userId, ctx.user.id))).limit(1);
-          const liked = input.liked ?? !existing;
-          if (existing && !liked) await tx.delete(likes).where(eq(likes.id, existing.id));
-          if (!existing && liked) await tx.insert(likes).values({postId: input.postId, userId: ctx.user.id});
-          const [counts] = await tx.select({
-            likeCount: sql<number>`coalesce(sum(case when ${likes.postId} = ${post.id} then 1 else 0 end), 0)`,
-            reputation: sql<number>`count(*)`,
-          }).from(likes).innerJoin(posts, eq(posts.id, likes.postId)).where(and(
-            ne(posts.status, "removed"), post.authorId === null ? eq(posts.id, post.id) : eq(posts.authorId, post.authorId),
-          ));
-          return {liked, likeCount: Number(counts.likeCount), authorId: post.authorId, authorReputation: post.authorId === null ? 0 : Number(counts.reputation)};
-        });
+        const [existing] = await db
+          .select()
+          .from(likes)
+          .where(and(eq(likes.postId, input.postId), eq(likes.userId, ctx.user.id)))
+          .limit(1);
+
+        if (existing) {
+          await db.delete(likes).where(eq(likes.id, existing.id));
+        } else {
+          await db.insert(likes).values({ postId: input.postId, userId: ctx.user.id });
+        }
+        return { liked: !existing };
       }),
 
     report: authedQuery
@@ -598,16 +550,30 @@ export const biosfereRouter = createRouter({
       .mutation(async ({ ctx, input }) => {
         const db = getDb();
 
-        await prepareImageCleanup();
-        await prepareLocalization();
-        await db.transaction(async tx => {
-          const [post] = await tx.select().from(posts).where(eq(posts.id, input.postId)).limit(1).for("update");
-          if (!post) throw new TRPCError({ code: "NOT_FOUND", message: "Gönderi bulunamadı." });
-          if (post.authorId !== ctx.user.id && ctx.user.role !== "admin") {
-            throw new TRPCError({ code: "FORBIDDEN", message: "Bu gönderiyi silme yetkiniz yok." });
+        const [post] = await db.select().from(posts).where(eq(posts.id, input.postId)).limit(1);
+        if (!post) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Gönderi bulunamadı." });
+        }
+
+        if (post.authorId !== ctx.user.id && ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Bu gönderiyi silme yetkiniz yok." });
+        }
+
+        const images = await db.select().from(postImages).where(eq(postImages.postId, post.id));
+        for (const img of images) {
+          try {
+            const parts = img.fileKey.split("/upload/");
+            if (parts.length > 1) {
+              let publicId = parts[1].replace(/^v\d+\//, "");
+              publicId = publicId.substring(0, publicId.lastIndexOf(".")) || publicId;
+              await cloudinary.uploader.destroy(publicId);
+            }
+          } catch (err) {
+            console.error("Cloudinary silme hatası:", err);
           }
-          const images = await tx.select().from(postImages).where(eq(postImages.postId, post.id));
-          await queueCloudImages(tx, images.map(image => image.fileKey));
+        }
+
+        await db.transaction(async (tx) => {
           await tx.delete(likes).where(eq(likes.postId, post.id));
           await tx.delete(reports).where(eq(reports.postId, post.id));
           await tx.delete(suggestions).where(eq(suggestions.postId, post.id));
@@ -615,7 +581,6 @@ export const biosfereRouter = createRouter({
           await tx.delete(postImages).where(eq(postImages.postId, post.id));
           await tx.delete(posts).where(eq(posts.id, post.id));
         });
-        kickCloudImageCleanup();
 
         return { ok: true };
       }),
@@ -625,12 +590,10 @@ export const biosfereRouter = createRouter({
   // TÜR TESPİTİ VE ÖNERİLER
   // -------------------------------------------------------
   identification: createRouter({
-    forPost: publicQuery
+    forPost: authedQuery
       .input(z.object({ postId: z.number() }))
       .query(async ({ input }) => {
         const db = getDb();
-        const [visible] = await db.select({id: posts.id}).from(posts).where(and(eq(posts.id, input.postId), ne(posts.status, "removed"))).limit(1);
-        if (!visible) throw new TRPCError({code: "NOT_FOUND"});
         const rows = await db
           .select({ suggestion: suggestions, user: users })
           .from(suggestions)
@@ -642,7 +605,7 @@ export const biosfereRouter = createRouter({
       }),
 
     suggest: authedQuery
-      .input(z.object({ postId: z.number(), ...requiredTaxonomy, note: z.string().trim().max(1000).optional() }))
+      .input(z.object({ postId: z.number(), ...suggestedTaxonomy, note: z.string().trim().max(1000).optional() }))
       .mutation(async ({ ctx, input }) => {
         const [post] = await getDb().select().from(posts).where(eq(posts.id, input.postId)).limit(1);
         if (!post || post.status !== "unknown") {
@@ -654,26 +617,35 @@ export const biosfereRouter = createRouter({
       }),
 
     accept: adminQuery
-      .input(z.object({suggestionId: z.number().int().positive()}))
-      .mutation(async ({input}) => {
+      .input(z.object({ suggestionId: z.number() }))
+      .mutation(async ({ input }) => {
         const db = getDb();
-        const [candidate] = await db.select({postId: suggestions.postId}).from(suggestions).where(eq(suggestions.id, input.suggestionId)).limit(1);
-        if (!candidate) throw new TRPCError({code: "NOT_FOUND"});
-        await db.transaction(async tx => {
-          // Follow the same lock order as removal: post first, then its suggestions.
-          const [post] = await tx.select({id: posts.id, status: posts.status}).from(posts).where(eq(posts.id, candidate.postId)).limit(1).for("update");
-          if (!post) throw new TRPCError({code: "NOT_FOUND"});
-          if (post.status !== "unknown") throw new TRPCError({code: "CONFLICT", message: "Bu gözlem artık tür onayına açık değil."});
-          const [suggestion] = await tx.select().from(suggestions).where(and(eq(suggestions.id, input.suggestionId), eq(suggestions.postId, post.id))).limit(1).for("update");
-          if (!suggestion || suggestion.status !== "pending") throw new TRPCError({code: "CONFLICT", message: "Bu öneri daha önce değerlendirilmiş."});
-          await tx.update(posts).set({status: "verified", kingdom: suggestion.kingdom, phylum: suggestion.phylum,
-            className: suggestion.className, orderName: suggestion.orderName, family: suggestion.family,
-            genus: suggestion.genus, species: suggestion.species, commonName: suggestion.commonName,
-          }).where(eq(posts.id, post.id));
-          await tx.update(suggestions).set({status: "accepted"}).where(eq(suggestions.id, suggestion.id));
-          await tx.update(suggestions).set({status: "rejected"}).where(and(eq(suggestions.postId, post.id), ne(suggestions.id, suggestion.id)));
+        const [suggestion] = await db.select().from(suggestions).where(eq(suggestions.id, input.suggestionId)).limit(1);
+        if (!suggestion) throw new TRPCError({ code: "NOT_FOUND" });
+
+        await db.transaction(async (tx) => {
+          await tx
+            .update(posts)
+            .set({
+              status: "verified",
+              kingdom: suggestion.kingdom,
+              phylum: suggestion.phylum,
+              className: suggestion.className,
+              orderName: suggestion.orderName,
+              family: suggestion.family,
+              genus: suggestion.genus,
+              species: suggestion.species,
+              commonName: suggestion.commonName,
+            })
+            .where(eq(posts.id, suggestion.postId));
+
+          await tx.update(suggestions).set({ status: "accepted" }).where(eq(suggestions.id, suggestion.id));
+          await tx
+            .update(suggestions)
+            .set({ status: "rejected" })
+            .where(and(eq(suggestions.postId, suggestion.postId), ne(suggestions.id, suggestion.id)));
         });
-        return {ok: true};
+        return { ok: true };
       }),
   }),
 
@@ -720,22 +692,16 @@ export const biosfereRouter = createRouter({
         const [report] = await db.select().from(reports).where(eq(reports.id, input.reportId)).limit(1);
         if (!report) throw new TRPCError({ code: "NOT_FOUND" });
 
-        if (input.action === "remove") await prepareImageCleanup();
-        await db.transaction(async tx => {
-          if (input.action === "remove") {
-            const [post] = await tx.select({ id: posts.id }).from(posts).where(eq(posts.id, report.postId)).limit(1).for("update");
-            if (post) {
-              const images = await tx.select().from(postImages).where(eq(postImages.postId, post.id));
-              await queueCloudImages(tx, images.map(image => image.fileKey));
-              await tx.delete(postImages).where(eq(postImages.postId, post.id));
-              await tx.update(posts).set({ status: "removed" }).where(eq(posts.id, post.id));
-            }
-          }
-          await tx.update(reports).set({ status: input.action === "dismiss" ? "dismissed" : "resolved" })
-            .where(eq(reports.id, input.reportId));
-        });
-        if (input.action === "remove") kickCloudImageCleanup();
+        await db
+          .update(reports)
+          .set({ status: input.action === "dismiss" ? "dismissed" : "resolved" })
+          .where(eq(reports.id, input.reportId));
+
+        if (input.action === "remove") {
+          await db.update(posts).set({ status: "removed" }).where(eq(posts.id, report.postId));
+        }
         return { ok: true };
       }),
   }),
 });
+
