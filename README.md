@@ -6,6 +6,8 @@ BioSfere, canlı gözlemlerini fotoğraflar, konum ve bilimsel sınıflandırmay
 
 Node.js 24 kullanın. Yerel ve Render Native kurulumunda derleme komutu `npm ci --include=dev && npm run build`, başlatma komutu `npm start` şeklindedir. Docker dağıtımı için depodaki Dockerfile aynı derlemeyi çalıştırır. Uygulama Render’ın verdiği `PORT` değerini kullanır.
 
+Canlı kurulum TiDB Cloud Starter üzerindeki `biosfere` veritabanını kullanır. Şema sürümleri `db/migrations` altında tutulur; her başlangıçta `db:push` çalıştırmayın. TiDB bağlantıları TLS sertifikası ve sunucu adı doğrulamasıyla yapılır. Boş veritabanında bile kayıt olan ilk kullanıcı otomatik yönetici olmaz. [Yeni veritabanı kurulumu ve eski verilerin ileride birleştirilmesi](DATABASE-MIGRATION.md).
+
 Mevcut MySQL bağlantısı `DATABASE_URL` ile ayarlanır. Fotoğraf yüklemelerinde `VITE_CLOUDINARY_CLOUD_NAME` ve `VITE_CLOUDINARY_UPLOAD_PRESET` kullanılır. İstemciye açık olan bu iki değer derleme sırasında okunur. Sunucuda aynı bulut için `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` ve `CLOUDINARY_API_SECRET` değişkenleri fotoğraf silme işlemlerini sağlar. Özel anahtarları Render’ın Environment bölümünde saklayın.
 
 ## Fotoğraflar

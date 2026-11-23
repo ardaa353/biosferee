@@ -27,12 +27,17 @@ Do not give the first anonymous registrant administrator privileges. Establish t
 administrator role separately after verifying their new account through the authenticated
 owner setup workflow; no bootstrap account or default password has been seeded.
 
-Before cutover, an authorized operator must provide the existing TiDB database password
-or complete the provider's password-reset flow. Store the resulting connection URL only
-in Render's secret `DATABASE_URL`; do not commit it or put it in client-side configuration.
-TLS and hostname verification are already enabled in the application for TiDB hosts.
-Keep all current Cloudinary variables. Check database health, empty feed, registration,
-login/logout and public missing-post responses after switching Render.
+The owner completed TiDB's password-reset step manually. The connection string was
+transferred into Render's secret `DATABASE_URL` without being printed, committed, or
+placed in frontend configuration. The stored target was read back privately and checked
+before deployment. Keep all existing Cloudinary variables.
+
+Fresh-start cutover is live. Render starts with `npm start`, without `db:push` on every
+startup. Verified `/api/health/database` returns 200/ok, the public post list returns an
+empty array, and an old absent post returns 404/NOT_FOUND instead of a database error.
+The signup page renders correctly. A nonexistent-account login is checked separately
+from a successful real-account registration; do not claim old accounts were recovered.
+TiDB connections require TLS with certificate-chain and hostname verification.
 
 If old data becomes available later, use a reviewed merge into the live fresh database,
 with duplicate-email/user mappings and post-reference checks. The full-copy script below
@@ -86,10 +91,10 @@ to those files move with their records; copying or re-uploading media is unneces
   activation, charges, and deletion, and requests preservation of the service/backups.
   Awaiting a human response; the documentation assistant confirmed there is no
   self-service free export path while the source is powered off.
-- No old rows have been transferred. The owner subsequently chose the fresh-start
-  procedure above. The TiDB schema is now initialized; Render DATABASE_URL still awaits
-  an authenticated database credential and cutover verification. Do not report the old
-  data as migrated or the fresh site as live until those checks pass.
+- No old rows have been transferred. The owner chose the fresh-start procedure above;
+  the initialized TiDB schema is now connected to the live Render service. This is a
+  working empty site, not recovery of the old Aiven data. The owner still needs a new
+  application account, followed by verified, explicit administrator assignment.
 
 ## Request sent to Aiven support
 
