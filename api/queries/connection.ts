@@ -1,4 +1,6 @@
 import { drizzle } from "drizzle-orm/mysql2";
+import { createPool } from "mysql2";
+import { mysqlOptions } from "./mysqlOptions";
 import * as schema from "@db/schema";
 import * as relations from "@db/relations";
 
@@ -14,7 +16,8 @@ export function getDb() {
       throw new Error("Veritabanı URL'si eksik.");
     }
 
-    instance = drizzle(dbUrl as string, {
+    const pool = createPool(mysqlOptions(dbUrl, process.env.DATABASE_CA_CERT));
+    instance = drizzle(pool, {
       mode: "planetscale",
       schema: fullSchema,
     });
