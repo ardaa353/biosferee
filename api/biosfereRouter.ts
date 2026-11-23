@@ -276,12 +276,9 @@ export const biosfereRouter = createRouter({
           throw new TRPCError({ code: "CONFLICT", message: "Bu kullanıcı adı veya e-posta zaten kullanılıyor." });
         }
 
-        const [firstUser] = await db.select({ id: users.id }).from(users).limit(1);
-        const role = firstUser ? "user" : "admin";
-
         const [{ id }] = await db
           .insert(users)
-          .values({ firstName: input.firstName, lastName: input.lastName, username: input.username, email: input.email, phone: input.phone ?? "", passwordHash: await hashPassword(input.password), role, bio: input.bio || "" })
+          .values({ firstName: input.firstName, lastName: input.lastName, username: input.username, email: input.email, phone: input.phone ?? "", passwordHash: await hashPassword(input.password), role: "user", bio: input.bio || "" })
           .$returningId();
 
         const [user] = await db.select().from(users).where(eq(users.id, id));
