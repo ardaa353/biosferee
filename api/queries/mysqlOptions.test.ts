@@ -8,7 +8,7 @@ describe("TiDB connection security", () => {
     const pool = mysql.createPool(mysqlOptions('mysql://user:secret@gateway.test.tidbcloud.com:4000/biosfere?ssl=false&multipleStatements=true&debug=true'));
     try {
       const options = Reflect.get(pool.config, "connectionConfig") as ConnectionOptions;
-      expect(options.ssl).toMatchObject({ rejectUnauthorized: true, minVersion: "TLSv1.2" });
+      expect(options.ssl).toMatchObject({ rejectUnauthorized: true, verifyIdentity: true, minVersion: "TLSv1.2" });
       expect(options.multipleStatements).toBe(false);
       expect(options.debug).toBe(false);
     } finally { await pool.promise().end(); }

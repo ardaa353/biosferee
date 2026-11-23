@@ -29,6 +29,6 @@ export function mysqlOptions(connectionUrl: string, ca?: string, requireTls = fa
     multipleStatements: false,
     debug: false,
     trace: false,
-    ...(tls ? { ssl: { rejectUnauthorized: true, minVersion: "TLSv1.2", ...(ca ? { ca: ca.replace(/\\n/g, "\n") } : {}) } } : {}),
+    ...(tls ? { ssl: { rejectUnauthorized: true, verifyIdentity: true, minVersion: "TLSv1.2", ...(ca ? { ca: ca.replace(/\\n/g, "\n") } : {}) } } : {}),
   };
 }
