@@ -21,7 +21,7 @@ const t = initTRPC.context<TrpcContext>().create({
         code: error.code,
         failure: databaseFailure(error.cause),
       });
-      return { ...shape, message: "Sunucuya şu anda ulaşılamıyor. Lütfen biraz sonra tekrar deneyin." };
+      return { ...shape, message: "Sunucuya ulaşılamadı." };
     }
     return shape;
   },
