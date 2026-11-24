@@ -70,7 +70,7 @@ export default function App() {
   useEffect(() => {
     document.documentElement.lang = locale;
     const description = document.querySelector('meta[name="description"]');
-    description?.setAttribute(
+    if (!/^\/gonderi\/[1-9]\d*$/.test(pathname)) description?.setAttribute(
       "content",
       trText(
         "BioSfere — biyolojik gözlem, ortak harita ve vatandaş bilimi platformu.",
@@ -117,3 +117,4 @@ export default function App() {
     </AuthProvider>
   );
 }
+

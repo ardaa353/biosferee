@@ -3,9 +3,11 @@ import type { HttpBindings } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { registerPublicSeo } from "./publicSeo";
 
 export function serveStaticFiles(app: Hono<{ Bindings: HttpBindings }>) {
   const index = readFileSync(resolve("dist/public/index.html"), "utf8");
+  registerPublicSeo(app, index);
   app.use("/assets/*", async (c, next) => { await next(); if (c.res.ok) c.header("Cache-Control", "public, max-age=31536000, immutable"); });
   app.use("/identification/assets/*", async (c, next) => { await next(); if (c.res.ok) c.header("Cache-Control", c.req.path.endsWith("/worker.js") ? "no-cache" : "public, max-age=31536000, immutable"); });
   app.use("/startup-sw.js", async (c, next) => {await next(); if (c.res.ok) c.header("Cache-Control", "no-cache");});
@@ -16,3 +18,4 @@ export function serveStaticFiles(app: Hono<{ Bindings: HttpBindings }>) {
     return c.html(index);
   });
 }
+

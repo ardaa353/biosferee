@@ -38,8 +38,11 @@ export default function PublicPostShell() {
         </ErrorBoundary>
       </main>
       <footer className="border-t border-[#09352e]/10 px-4 py-8 text-center text-sm text-[#53675f]">
-        {trText("BioSfere · Canlı gözlem ağı")}
+        <a href="/biosfere.html" className="underline underline-offset-4">
+          {trText("BioSfere · Canlı gözlem ağı")}
+        </a>
       </footer>
     </div>
   );
 }
+

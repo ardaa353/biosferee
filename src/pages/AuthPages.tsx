@@ -75,6 +75,10 @@ function AuthFrame({
             {mode === "login"
               ? trText("BioSfere açık vatandaş bilimi ağıdır.")
               : trText("Gözlemlerinle biyoçeşitliliğin kaydına katkı sağla.")}
+            <br />
+            <a href="/biosfere.html" className="underline underline-offset-4">
+              {trText("BioSfere hakkında")}
+            </a>
           </p>
         </div>
       </section>
@@ -314,3 +318,4 @@ export function RegisterPage() {
     </AuthFrame>
   );
 }
+

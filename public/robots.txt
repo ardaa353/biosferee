@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /yonetim
+Disallow: /ayarlar
+Disallow: /paylas
+Disallow: /gonderi/*/duzenle
+
+Sitemap: https://biosferee.onrender.com/sitemap.xml
