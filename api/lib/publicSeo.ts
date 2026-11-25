@@ -21,7 +21,7 @@ export function registerPublicSeo(app: Hono<{ Bindings: HttpBindings }>, index: 
   });
   app.get("/sitemaps/pages.xml", c => {
     c.header("Content-Type", "application/xml; charset=utf-8");
-    return c.body(sitemapXml([{ url: `${SITE_URL}/biosfere.html` }]));
+    return c.body(sitemapXml([{ url: `${SITE_URL}/biosfere.html` }, { url: `${SITE_URL}/biosfere-en.html` }]));
   });
   app.get("/sitemaps/:filename", async c => {
     const match = /^posts-([1-9]\d*)\.xml$/.exec(c.req.param("filename"));
