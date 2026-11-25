@@ -1,7 +1,7 @@
 /* Only the public app shell and fingerprinted assets are cached. API responses and media stay on the network. */
-const SHELL_CACHE = "biosfere-startup-shell-v1";
+const SHELL_CACHE = "biosfere-startup-shell-v2";
 const ASSET_CACHE = "biosfere-startup-assets-v1";
-const SHELL_URL = new URL("/", self.location.origin).href;
+const SHELL_URL = new URL("/index.html", self.location.origin).href;
 let refresh;
 
 async function updateShell() {
@@ -68,7 +68,12 @@ self.addEventListener("install", (event) => {
   event.waitUntil(updateShell().then(() => self.skipWaiting()));
 });
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil((async () => {
+    for (const name of await caches.keys()) {
+      if (name.startsWith("biosfere-startup-shell-") && name !== SHELL_CACHE) await caches.delete(name);
+    }
+    await self.clients.claim();
+  })());
 });
 self.addEventListener("message", (event) => {
   if (event.data?.type !== "refresh-startup-shell") return;
@@ -100,7 +105,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   const appRoute =
-    /^\/(?:|akis|giris|kayit|paylas|bilinmeyenler|arama|harita|sistematik|ayarlar|admin|yonetim|gonderi\/\d+(?:\/duzenle)?|profil\/[a-z0-9_]+)\/?$/;
+    /^\/(?:akis|giris|kayit|paylas|bilinmeyenler|arama|harita|sistematik|ayarlar|admin|yonetim|gonderi\/\d+\/duzenle|profil\/[a-z0-9_]+)\/?$/;
   if (request.mode !== "navigate" || !appRoute.test(url.pathname)) return;
   event.respondWith(
     (async () => {
