@@ -1,4 +1,4 @@
-import { t as trText } from "@/lib/i18n";
+import { getLocale, t as trText } from "@/lib/i18n";
 import { Suspense } from "react";
 import { Link, Outlet, useLocation } from "react-router";
 import { useAuth } from "@/lib/auth";
@@ -38,6 +38,9 @@ export default function PublicPostShell() {
         </ErrorBoundary>
       </main>
       <footer className="border-t border-[#09352e]/10 px-4 py-8 text-center text-sm text-[#53675f]">
+        <a href={getLocale() === "en" ? "/explore" : "/kesfet"} className="mr-4 underline underline-offset-4">
+          {getLocale() === "en" ? "Explore observations" : "Gözlemleri keşfet"}
+        </a>
         <a href="/biosfere.html" className="underline underline-offset-4">
           {trText("BioSfere · Canlı gözlem ağı")}
         </a>

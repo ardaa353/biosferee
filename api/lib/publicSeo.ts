@@ -1,13 +1,56 @@
-import type { Hono } from "hono";
+import type { Context, Hono } from "hono";
 import type { HttpBindings } from "@hono/node-server";
 import { asc, ne, sql } from "drizzle-orm";
 import { posts } from "../../db/schema";
 import { getDb } from "../queries/connection";
-import { biosfereRouter } from "../biosfereRouter";
+import { biosfereRouter, getPublicObservationPage } from "../biosfereRouter";
+import { discoveryDocument, observationsRss, parseDiscoveryQuery, type DiscoveryLanguage } from "./discovery";
 import { observationDocument, SITE_URL, sitemapIndexXml, sitemapXml, SITEMAP_PAGE_SIZE } from "./seo";
 import { log } from "./logger";
 
 export function registerPublicSeo(app: Hono<{ Bindings: HttpBindings }>, index: string) {
+  app.get("/", c => {
+    c.header("Cache-Control", "no-store");
+    c.header("Vary", "Accept-Language");
+    const language = c.req.header("Accept-Language")?.split(",")[0]?.split(";")[0]?.trim().toLowerCase();
+    return c.redirect(language && !language.startsWith("tr") ? "/explore" : "/kesfet", 302);
+  });
+  const discovery = async (c: Context<{ Bindings: HttpBindings }>, language: DiscoveryLanguage) => {
+    c.header("Cache-Control", "private, no-store");
+    const query = parseDiscoveryQuery(c.req.query("page"), c.req.query("kingdom"));
+    if (!query) {
+      c.header("X-Robots-Tag", "noindex");
+      return c.text(language === "tr" ? "Geçersiz sayfa veya filtre." : "Invalid page or filter.", 400);
+    }
+    try {
+      const data = await getPublicObservationPage(query);
+      if (query.page > 1 && !data.items.length) {
+        c.header("X-Robots-Tag", "noindex");
+        return c.text(language === "tr" ? "Gözlem sayfası bulunamadı." : "Observation page not found.", 404);
+      }
+      return c.html(discoveryDocument(data, language, query));
+    } catch {
+      c.header("Retry-After", "60");
+      c.header("X-Robots-Tag", "noindex");
+      return c.text(language === "tr" ? "Gözlemler şu anda yüklenemedi. Lütfen yeniden deneyin." : "Observations are temporarily unavailable. Please try again.", 503);
+    }
+  };
+  app.get("/kesfet", c => discovery(c, "tr"));
+  app.get("/explore", c => discovery(c, "en"));
+  app.get("/gozlemler.rss", async c => {
+    c.header("Cache-Control", "private, no-store");
+    try {
+      const data = await getPublicObservationPage({ page: 1 });
+      c.header("Content-Type", "application/rss+xml; charset=utf-8");
+      return c.body(observationsRss(data.items));
+    } catch {
+      c.header("Retry-After", "60");
+      c.header("X-Robots-Tag", "noindex");
+      return c.text("Observation feed temporarily unavailable.", 503);
+    }
+  });
+  app.get("/rss.xml", c => c.redirect("/gozlemler.rss", 302));
+
   app.get("/sitemap.xml", async c => {
     try {
       const [row] = await getDb().select({ count: sql<number>`count(*)` }).from(posts).where(ne(posts.status, "removed"));
@@ -21,7 +64,7 @@ export function registerPublicSeo(app: Hono<{ Bindings: HttpBindings }>, index: 
   });
   app.get("/sitemaps/pages.xml", c => {
     c.header("Content-Type", "application/xml; charset=utf-8");
-    return c.body(sitemapXml([{ url: `${SITE_URL}/biosfere.html` }, { url: `${SITE_URL}/biosfere-en.html` }]));
+    return c.body(sitemapXml([{ url: `${SITE_URL}/biosfere.html` }, { url: `${SITE_URL}/biosfere-en.html` }, { url: `${SITE_URL}/kesfet` }, { url: `${SITE_URL}/explore` }]));
   });
   app.get("/sitemaps/:filename", async c => {
     const match = /^posts-([1-9]\d*)\.xml$/.exec(c.req.param("filename"));

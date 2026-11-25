@@ -1,3 +1,4 @@
+import { DISCOVERY_PAGE_SIZE, publicDiscoveryItems, type DiscoveryPage, type DiscoveryQuery } from "./lib/discovery";
 import { translationRouter } from "./translationRouter";
 import { getUserLanguage, saveUserLanguage, prepareLocalization } from "./lib/localization";
 import { prepareImageCleanup, queueCloudImages, kickCloudImageCleanup } from "./lib/imageCleanup";
@@ -159,14 +160,14 @@ function byPost<T>(rows: T[], postId: (row: T) => number) {
   return grouped;
 }
 
-type FeedOptions = {status: "verified" | "unknown"; kingdom?: string; sort: "newest" | "reputation"; cursor: number; limit: number};
+type FeedOptions = {status?: "verified" | "unknown"; kingdom?: string; sort: "newest" | "reputation"; cursor: number; limit: number};
 async function listPosts(viewerId?: number, postId?: number, feed?: FeedOptions, postIds?: number[]) {
   const db = getDb();
   const scores = db.select({authorId: posts.authorId, total: sql<number>`count(*)`.as("total")}).from(likes)
     .innerJoin(posts, eq(likes.postId, posts.id)).where(ne(posts.status, "removed")).groupBy(posts.authorId).as("author_scores");
   let selection = db.select({ post: posts, author: users }).from(posts).leftJoin(users, eq(users.id, posts.authorId))
     .where(and(ne(posts.status, "removed"), postIds ? inArray(posts.id, postIds) : undefined, postId === undefined ? undefined : eq(posts.id, postId),
-      feed ? eq(posts.status, feed.status) : undefined, feed?.kingdom ? eq(posts.kingdom, feed.kingdom) : undefined)).$dynamic();
+      feed?.status ? eq(posts.status, feed.status) : undefined, feed?.kingdom ? eq(posts.kingdom, feed.kingdom) : undefined)).$dynamic();
   if (feed?.sort === "reputation") selection = selection.leftJoin(scores, eq(scores.authorId, posts.authorId));
   selection = selection.orderBy(...(feed?.sort === "reputation" ? [desc(sql`coalesce(${scores.total}, 0)`), desc(posts.createdAt), desc(posts.id)] : [desc(posts.createdAt), desc(posts.id)]));
   if (feed) selection = selection.limit(feed.limit + 1).offset(feed.cursor);
@@ -194,6 +195,17 @@ async function listPosts(viewerId?: number, postId?: number, feed?: FeedOptions,
     liked: Number(likesByPost.get(post.id)?.liked ?? 0) === 1,
     collaborators: (partnersByPost.get(post.id) || []).map(item => safeUser(item.user))
   }));
+}
+
+export async function getPublicObservationPage(query: DiscoveryQuery): Promise<DiscoveryPage> {
+  const rows = await listPosts(undefined, undefined, {
+    kingdom: query.kingdom, sort: "newest", cursor: (query.page - 1) * DISCOVERY_PAGE_SIZE, limit: DISCOVERY_PAGE_SIZE,
+  });
+  const visible = publicDiscoveryItems(rows);
+  return {
+    items: visible.slice(0, DISCOVERY_PAGE_SIZE),
+    nextPage: visible.length > DISCOVERY_PAGE_SIZE && query.page < 1000 ? query.page + 1 : null,
+  };
 }
 
 const feedSessions = new Map<string, {expires: number; ids: number[]}>();
