@@ -7,6 +7,13 @@ BioSfere, canlı gözlemlerini fotoğraflar, konum ve bilimsel sınıflandırmay
 BioSfere is a citizen science platform for sharing biodiversity observations with photos, locations and scientific classification. Explore the project, document the species around you, and contribute to a shared biodiversity map.
 
 
+## Try BioSfere / İlk gözlemini paylaş
+
+Browse nature observations before signing up: [English discovery](https://biosferee.onrender.com/explore?utm_source=github&utm_medium=referral&utm_campaign=readme) · [Türkçe keşfet](https://biosferee.onrender.com/kesfet?utm_source=github&utm_medium=referral&utm_campaign=readme).
+
+New to nature recording? Read the [English / Türkçe field-observation guide](docs/nature-observation-guide.md), then [create a free account](https://biosferee.onrender.com/kayit?utm_source=github&utm_medium=referral&utm_campaign=readme) and share your first observation.
+
+
 ## Render
 
 Node.js 24 kullanın. Yerel ve Render Native kurulumunda derleme komutu `npm ci --include=dev && npm run build`, başlatma komutu `npm start` şeklindedir. Docker dağıtımı için depodaki Dockerfile aynı derlemeyi çalıştırır. Uygulama Render’ın verdiği `PORT` değerini kullanır.
