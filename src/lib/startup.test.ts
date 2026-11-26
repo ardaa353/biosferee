@@ -3,6 +3,8 @@ import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { waitForServer } from "./startup";
 
+vi.mock("./i18n", () => ({ t: (text: string) => text }));
+
 const origin = "https://biosfere.test";
 const shell =
   '<html><span class="biosfere-startup-word">BioSfere</span><script src="/assets/app-1.js"></script><link href="/assets/app-1.css" rel="stylesheet"></html>';
@@ -39,9 +41,11 @@ function worker() {
         delete: async (value: string | Request) => store.delete(key(value)),
       };
     },
+    keys: async () => [...stores.keys()],
+    delete: async (name: string) => stores.delete(name),
   };
   const fetch = vi.fn(async (value: string | Request) => {
-    if (key(value) === origin + "/") return html(shell);
+    if (key(value) === origin + "/index.html") return html(shell);
     return new Response("asset", {
       headers: { "Content-Type": "text/javascript" },
     });
@@ -71,6 +75,11 @@ function worker() {
       listeners.get("install")!({
         waitUntil: (job) => jobs.push(job),
       });
+      await Promise.all(jobs);
+    },
+    async activate() {
+      const jobs: Promise<unknown>[] = [];
+      listeners.get("activate")!({ waitUntil: (job) => jobs.push(job) });
       await Promise.all(jobs);
     },
     request(path: string, mode = "navigate", method = "GET") {
@@ -105,6 +114,26 @@ afterEach(() => {
 });
 
 describe("BioSfere başlangıç önbelleği", () => {
+  it("herkese açık ana sayfa, keşif ve gözlem adreslerini eski uygulama kabuğuyla değiştirmez", () => {
+    const app = worker();
+    for (const path of ["/", "/kesfet", "/explore", "/gonderi/17", "/biosfere.html"]) {
+      expect(app.request(path).response).toBeUndefined();
+    }
+    expect(app.fetch).not.toHaveBeenCalled();
+  });
+  it("yeni kabuğu kararlı index adresinden yükleyip yalnızca eski kabuk önbelleğini temizler", async () => {
+    const app = worker();
+    app.stores.set("biosfere-startup-shell-v1", new Map());
+    app.stores.set("other-app-cache", new Map());
+    await app.install();
+    expect(app.fetch.mock.calls[0][0]).toBe(origin + "/index.html");
+    await app.activate();
+    expect(app.stores.has("biosfere-startup-shell-v1")).toBe(false);
+    expect(app.stores.has("biosfere-startup-shell-v2")).toBe(true);
+    expect(app.stores.has("biosfere-startup-assets-v1")).toBe(true);
+    expect(app.stores.has("other-app-cache")).toBe(true);
+  });
+
   it("başlangıç HTML'iyle birlikte çalışması için gereken dosyaları saklar", async () => {
     const app = worker();
     await app.install();
@@ -114,8 +143,8 @@ describe("BioSfere başlangıç önbelleği", () => {
     ]);
     expect(
       await app.stores
-        .get("biosfere-startup-shell-v1")!
-        .get(origin + "/")!
+        .get("biosfere-startup-shell-v2")!
+        .get(origin + "/index.html")!
         .text(),
     ).toBe(shell);
   });
@@ -123,13 +152,13 @@ describe("BioSfere başlangıç önbelleği", () => {
     const app = worker();
     await app.install();
     app.fetch.mockImplementation(async () => html("Render is starting…", 503));
-    const event = app.request("/gonderi/17");
+    const event = app.request("/akis");
     expect(await (await event.response)!.text()).toBe(shell);
     await Promise.all(event.jobs);
     expect(
       await app.stores
-        .get("biosfere-startup-shell-v1")!
-        .get(origin + "/")!
+        .get("biosfere-startup-shell-v2")!
+        .get(origin + "/index.html")!
         .clone()
         .text(),
     ).toBe(shell);
@@ -152,22 +181,22 @@ describe("BioSfere başlangıç önbelleği", () => {
     const app = worker();
     app.fetch.mockImplementation(async () => html("Render is starting…"));
     await expect(app.install()).rejects.toThrow("Waiting for BioSfere");
-    expect(app.stores.get("biosfere-startup-shell-v1")).toBeUndefined();
+    expect(app.stores.get("biosfere-startup-shell-v2")).toBeUndefined();
   });
   it("yeni sürümün dosyaları alınamazsa çalışan önceki sürümü korur", async () => {
     const app = worker();
     await app.install();
     app.fetch.mockImplementation(async (value) =>
       new URL(typeof value === "string" ? value : value.url, origin)
-        .pathname === "/"
+        .pathname === "/index.html"
         ? html(shell.replaceAll("app-1", "app-2"))
         : new Response("missing", { status: 404 }),
     );
     expect(await app.refresh()).toEqual({ changed: false });
     expect(
       await app.stores
-        .get("biosfere-startup-shell-v1")!
-        .get(origin + "/")!
+        .get("biosfere-startup-shell-v2")!
+        .get(origin + "/index.html")!
         .clone()
         .text(),
     ).toBe(shell);
@@ -177,7 +206,7 @@ describe("BioSfere başlangıç önbelleği", () => {
     await app.install();
     app.fetch.mockImplementation(async (value) =>
       new URL(typeof value === "string" ? value : value.url, origin)
-        .pathname === "/"
+        .pathname === "/index.html"
         ? html(shell.replaceAll("app-1", "app-2"))
         : new Response("new asset"),
     );
